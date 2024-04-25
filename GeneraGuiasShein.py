@@ -150,7 +150,7 @@ def process_images(image_folder):
     logger.info(f"El archivo PDF '{nombre_archivo_pdf}' ha sido creado con éxito.")
 
     # Guardar el PDF generado con las páginas pares eliminadas
-    nombre_archivo_pdf_sin_pares = f"Guias Shein {fecha_actual} medidas pequeñas4_sin_pares.pdf"
+    nombre_archivo_pdf_sin_pares = f"Guias Shein {fecha_actual} medidas pequeñas canguros.pdf"
     eliminar_hojas_pares(nombre_archivo_pdf, nombre_archivo_pdf_sin_pares)
     logger.info(f"El archivo PDF '{nombre_archivo_pdf_sin_pares}' ha sido creado con las páginas pares eliminadas.")
 
