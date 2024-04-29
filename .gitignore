@@ -1,0 +1,8 @@
+# Ignorar archivos con extensiones específicas
+*.jpg
+,jpeg
+*.png
+*.pdf
+*.doc
+*.docx
+*.xlsx
