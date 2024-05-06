@@ -25,7 +25,7 @@ def create_orders_doc(data, base_image_folder):
     section.orientation = WD_ORIENTATION.LANDSCAPE
 
     # Agregar título y subtítulo
-    today = date.today().strftime("%d/%m/%Y")
+    today = date.today().strftime("%d-%m-%Y")  # Cambio de formato de fecha
     doc.add_heading(f"Pedidos Shein - {today}", level=1)
 
     for order in data:
@@ -64,15 +64,11 @@ def create_orders_doc(data, base_image_folder):
             else:
                 print(f"La imagen {image_path} no existe.")
 
-        # Eliminar espacios adicionales entre los pedidos
-        # doc.add_paragraph("--------------------")
-        # doc.add_paragraph("\n")  # Eliminado para reducir el espacio entre pedidos
-
     # Agregar la fecha de generación del documento
-    doc.add_paragraph(f"Documento generado el {date.today().strftime('%d/%m/%Y')}")
+    doc.add_paragraph(f"Documento generado el {date.today().strftime('%d-%m-%Y')}")
 
     # Guardar el archivo Word
-    word_file = "pedidos_shein.docx"
+    word_file = f"pedidos_shein_{date.today().strftime('%d-%m-%y')}.docx"
     doc.save(word_file)
     print(f"Archivo Word '{word_file}' creado exitosamente.")
 
@@ -109,7 +105,7 @@ def create_tracking_table(data):
         row[1].text = fecha_enviado if fecha_enviado else ' '  # Usar espacio en blanco si la fecha es vacía
 
     # Guardar el archivo Word
-    doc_file = "tracking_table.docx"
+    doc_file = f"tracking_table_{date.today().strftime('%d-%m-%y')}.docx"
     doc.save(doc_file)
     print(f"Archivo Word '{doc_file}' creado exitosamente.")
 
