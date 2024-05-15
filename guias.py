@@ -12,6 +12,7 @@ from docx2pdf import convert
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
 def select_directory():
     root = tk.Tk()
     root.withdraw()
@@ -35,6 +36,7 @@ logger.info(f"Directorio seleccionado: {directory}")
 
 # Listar los archivos en el directorio
 image_files = sorted([f for f in os.listdir(directory) if f.endswith('.jpg')])
+total_imagenes_inicio = len(image_files)
 
 # Ancho y alto deseados en centímetros
 desired_width = Cm(19.26)
@@ -91,6 +93,8 @@ fecha_actual = datetime.now().strftime("%d-%m-%Y")
 # Definir el nombre del archivo con la fecha actual
 nombre_archivo_doc = f"Guias Shein {fecha_actual}.docx"
 nombre_archivo_pdf = f"Guias Shein {fecha_actual}.pdf"
+logger.info(f"Total de Pedidos procesados: {total_imagenes_inicio/2}")
+
 
 # Guardar el documento Word con el nombre de archivo especificado
 doc.save(nombre_archivo_doc)

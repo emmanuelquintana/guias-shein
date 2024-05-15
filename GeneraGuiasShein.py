@@ -161,6 +161,7 @@ def process_images(image_folder):
     # Log del total de imágenes al inicio y el número de hojas de 4 imágenes
     logger.info(f"Total de imágenes al inicio: {total_imagenes_inicio}")
     logger.info(f"Total de hojas de 4 imágenes: {hojas_de_4_imagenes}")
+    logger.info(f"Total de Pedidos procesados: {total_imagenes_inicio/2}")
 
 def eliminar_hojas_pares(nombre_archivo_pdf, nombre_archivo_pdf_sin_pares):
     # Cargar el documento PDF

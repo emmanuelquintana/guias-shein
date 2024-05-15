@@ -6,3 +6,6 @@
 *.doc
 *.docx
 *.xlsx
+*.csv
+*.json
+*.txt
