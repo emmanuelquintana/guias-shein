@@ -1,0 +1,101 @@
+// Seleccionamos todos los elementos div que tienen la clase 'styles__orderInfoItem--LcvZWcb0'
+var pedidos = document.querySelectorAll('.styles__orderInfoItem--LcvZWcb0');
+
+// Creamos un array para almacenar los códigos de rastreo
+var codigosRastreo = [];
+
+// Iteramos sobre los elementos y extraemos el código de rastreo de aquellos que lo contengan
+pedidos.forEach(function(pedido) {
+    // Seleccionamos todos los elementos span dentro del pedido
+    var spans = pedido.getElementsByTagName('span');
+    
+    // Iteramos sobre los spans para encontrar el que contiene el texto "Código de rastreo"
+    for (var i = 0; i < spans.length; i++) {
+        if (spans[i].textContent.trim().startsWith('Código de rastreo')) {
+            // Extraemos el código de rastreo eliminando la parte del texto que indica 'Código de rastreo：'
+            var codigoRastreo = spans[i].textContent.trim().replace('Código de rastreo：', '');
+            // Añadimos el código de rastreo al array
+            codigosRastreo.push(codigoRastreo);
+            break; // Salimos del bucle una vez que se encuentra el código de rastreo
+        }
+    }
+});
+
+// Seleccionamos todos los elementos div que tienen la clase 'styles__orderInfoCardItemHeader--KIWjUc5n'
+var pedidosInfo = document.querySelectorAll('.styles__orderInfoCardItemHeader--KIWjUc5n');
+
+// Crea un array para almacenar los datos de cada pedido
+var datosPedidos = [];
+
+// Iteramos sobre los elementos y extraemos los códigos de rastreo de los pedidos
+pedidosInfo.forEach(function(pedido, index) {
+    var codigoRastreo = pedido.querySelector('span').textContent.trim().replace('Pedido:', '').trim();
+    var datosPedido = {};
+
+    // Asignamos el código de rastreo correspondiente a este pedido
+    datosPedido.codigo_rastreo = codigoRastreo;
+
+    // Inicializamos un array para almacenar los productos de este pedido
+    datosPedido.productos = [];
+
+    // Buscamos el elemento que contiene la información de los productos de este pedido
+    var productosPedido = pedido.nextElementSibling.querySelectorAll('.styles__goodsSuffix--rocw_Dw_');
+
+    // Iteramos sobre los productos y extraemos la información deseada
+    productosPedido.forEach(function(producto) {
+        var titulo = producto.parentElement.parentElement.querySelector('.shein-components_ellipsis_ellipsis').textContent.trim();
+        var talla = producto.textContent.trim();
+        var cantidadTexto = producto.parentElement.parentElement.querySelector('.styles__numberLayout--m3Oeevdg').textContent.trim();
+        var cantidad = parseInt(cantidadTexto.split(' ')[1]); // Extraemos el número de la cantidad y lo convertimos a entero
+
+        // Guardamos la información del producto en un objeto
+        var productoInfo = {
+            titulo: titulo,
+            talla: talla,
+            cantidad: cantidad
+        };
+
+        // Agregamos el objeto del producto al array de productos de este pedido
+        datosPedido.productos.push(productoInfo);
+    });
+
+    // Agregamos el objeto de datos del pedido al array de pedidos
+    datosPedidos.push(datosPedido);
+});
+
+// Asignamos los códigos de rastreo a cada pedido
+for (var i = 0; i < datosPedidos.length; i++) {
+    datosPedidos[i].codigo_rastreo = codigosRastreo[i];
+}
+
+// Convierte los datos a formato JSON
+var datosJSON = JSON.stringify(datosPedidos);
+
+// Imprime los datos JSON en la consola
+console.log(datosJSON);
+
+// Convierte los datos a formato JSON
+var datosJSON = JSON.stringify(datosPedidos);
+
+// Crea un Blob con los datos JSON
+var blob = new Blob([datosJSON], { type: 'application/json' });
+
+// Crea una URL para el Blob
+var url = URL.createObjectURL(blob);
+
+// Crea un enlace para descargar el JSON
+var a = document.createElement('a');
+a.href = url;
+a.download = 'datos.json'; // Establece el nombre del archivo
+a.style.display = 'none';
+
+// Agrega el enlace al cuerpo del documento
+document.body.appendChild(a);
+
+// Simula un clic en el enlace para iniciar la descarga
+a.click();
+
+// Remueve el enlace del cuerpo del documento
+document.body.removeChild(a);
+
+// Tú código posterior aquí...

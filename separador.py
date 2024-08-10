@@ -1,0 +1,17 @@
+def procesar_codigos(cadena):
+    # Eliminar las comillas al principio y al final de la cadena
+    cadena = cadena.strip("'")
+
+    # Dividir la cadena en códigos individuales
+    codigos = cadena.split("', '")
+
+    # Iterar sobre cada código
+    for codigo in codigos:
+        # Imprimir el código
+        print(codigo)
+        # Imprimir un salto de línea
+        print()
+        
+# Ejemplo de uso
+cadena_ejemplo = "GC2404293838166019', 'GC2404293624718336', 'GC2404293403797505', 'GC2404293355952130', 'GC2404293289103362', 'GC2404293272790021', 'GC2404293266233347', 'GC2404293201874949', 'GC2404293154249729', 'GC2404293101673474', 'GC2404293015098371', 'GC2404292973220865', 'GC2404292788305925', '6042924807560', 'GC2404292702994434', '6042924178614', '6042924958341', '6042924608925', 'GC2404292326080516', 'GC2404292263493634', '6042924992285', 'GC2404291923366916', '6042924758536', 'GC2404291773300742', 'GC2404291641556995', '6042924958744', 'GC2404291313893380', 'GC2404290982922240', 'GC2404290909585411', 'GC2404290894446596', '6042924747661', 'GC2404290560021508', 'GC2404290355101697', 'GC2404290341978113', 'GC2404284214507522', 'GC2404283775875072', 'GC2404283559699459'"  # Agrega aquí tu cadena de códigos
+procesar_codigos(cadena_ejemplo)

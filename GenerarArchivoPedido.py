@@ -5,6 +5,8 @@ from docx import Document
 from docx.shared import Inches, RGBColor
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.enum.section import WD_ORIENTATION
+from docx.enum.table import WD_ALIGN_VERTICAL
+
 
 def select_folder():
     """Permite al usuario seleccionar una carpeta donde se encuentran las imágenes."""
@@ -29,8 +31,9 @@ def create_orders_doc(data, base_image_folder):
     doc.add_heading(f"Pedidos Shein - {today}", level=1)
 
     for order in data:
-        codigo_rastreo = order['codigo_rastreo']
-        doc.add_heading(f"Número de seguimiento: {codigo_rastreo}", level=2).bold = True
+        if 'codigo_rastreo' in order:
+            codigo_rastreo = order['codigo_rastreo']
+            doc.add_heading(f"Número de seguimiento: {codigo_rastreo}", level=2).bold = True
 
         for product in order['productos']:
             # Obtener información del producto
@@ -79,15 +82,18 @@ def create_tracking_table(data):
 
     # Agregar título y subtítulo
     doc.add_heading("Hoja de Salida U4U", level=1)
-    doc.add_paragraph("Número de seguimiento:", style='Heading2')
-    doc.add_paragraph("Fecha de enviado:", style='Heading2')
 
     # Crear tabla de seguimiento
-    table = doc.add_table(rows=1, cols=2)
+    table = doc.add_table(rows=1, cols=3)
     table.autofit = True
 
     # Establecer estilos para los títulos de las columnas
-    for cell in table.rows[0].cells:
+    titles = ["Número de seguimiento", "Fecha de enviado", ""]
+    for i, title in enumerate(titles):
+        cell = table.cell(0, i)
+        cell.text = title
+        cell.paragraphs[0].alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
         for paragraph in cell.paragraphs:
             for run in paragraph.runs:
                 run.bold = True
@@ -100,9 +106,10 @@ def create_tracking_table(data):
             continue
 
         row = table.add_row().cells
-        row[0].text = order['codigo_rastreo']
+        row[0].text = str(i)  # Número de seguimiento
+        row[1].text = order.get('codigo_rastreo', '')  # Código de rastreo
         fecha_enviado = order.get('fecha_enviado', '')
-        row[1].text = fecha_enviado if fecha_enviado else ' '  # Usar espacio en blanco si la fecha es vacía
+        row[2].text = fecha_enviado if fecha_enviado else ' '  # Fecha de enviado (usar espacio en blanco si la fecha es vacía)
 
     # Guardar el archivo Word
     doc_file = f"tracking_table_{date.today().strftime('%d-%m-%y')}.docx"
