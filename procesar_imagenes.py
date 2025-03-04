@@ -77,136 +77,131 @@ class ImagenPreview(ctk.CTkFrame):
         super().__init__(master, *args, **kwargs)
         self.configure(fg_color=("white", "gray20"))
         
-        # Cargar y mostrar miniatura con tamaño más grande
+        # Cargar y mostrar miniatura
         self.imagen = Image.open(imagen_path)
-        self.imagen.thumbnail((250, 250))  # Aumentamos el tamaño de la miniatura
+        self.imagen.thumbnail((150, 150))
         self.photo = ImageTk.PhotoImage(self.imagen)
         
         # Contenedor principal con efecto glassmorphism
-        self.container = ctk.CTkFrame(self, corner_radius=15, fg_color=("white", "gray25"))
-        self.container.pack(padx=8, pady=8, fill="both", expand=True)
+        self.container = ctk.CTkFrame(self, corner_radius=10, fg_color=("white", "gray25"))
+        self.container.pack(padx=5, pady=5, fill="both", expand=True)
         
         # Imagen
         self.label_imagen = ctk.CTkLabel(self.container, image=self.photo, text="")
-        self.label_imagen.pack(padx=8, pady=8)
+        self.label_imagen.pack(padx=5, pady=5)
         
         # Nombre del archivo
         nombre = Path(imagen_path).name
-        if len(nombre) > 25:  # Aumentamos el número de caracteres visibles
-            nombre = nombre[:22] + "..."
-        self.label_nombre = ctk.CTkLabel(
-            self.container, 
-            text=nombre, 
-            font=("Roboto", 13),
-            wraplength=240  # Para nombres largos
-        )
-        self.label_nombre.pack(pady=3)
+        if len(nombre) > 20:
+            nombre = nombre[:17] + "..."
+        self.label_nombre = ctk.CTkLabel(self.container, text=nombre, 
+                                       font=("Roboto", 12))
+        self.label_nombre.pack(pady=2)
         
-        # Checkbox más grande y visible
+        # Checkbox
         self.var = tk.BooleanVar()
-        self.checkbox = ctk.CTkCheckBox(
-            self.container, 
-            text="Aplicar margen", 
-            variable=self.var,
-            font=("Roboto", 12),
-            checkbox_height=25,
-            checkbox_width=25
-        )
-        self.checkbox.pack(pady=8)
+        self.checkbox = ctk.CTkCheckBox(self.container, text="", variable=self.var)
+        self.checkbox.pack(pady=5)
 
 class SelectorImagenes(ctk.CTkToplevel):
     def __init__(self, carpeta_entrada):
         super().__init__()
         
-        # Configurar ventana para que ocupe casi toda la pantalla
+        # Configurar tamaño inicial más grande
         ancho_pantalla = self.winfo_screenwidth()
         alto_pantalla = self.winfo_screenheight()
-        ancho_ventana = int(ancho_pantalla * 0.85)  # 85% del ancho de la pantalla
-        alto_ventana = int(alto_pantalla * 0.85)    # 85% del alto de la pantalla
+        # Usar 80% del tamaño de la pantalla
+        ancho_ventana = int(ancho_pantalla * 0.8)
+        alto_ventana = int(alto_pantalla * 0.8)
         
-        self.title("Selector de Imágenes - Procesador de Imágenes Shein")
+        self.title("Selector de Imágenes")
         self.geometry(f"{ancho_ventana}x{alto_ventana}")
         self.minsize(1200, 800)  # Tamaño mínimo de la ventana
+        
+        # Configurar para que inicie maximizada
+        self.state('zoomed')
+        
         self.imagenes_seleccionadas = set()
         
         # Configurar el estilo glassmorphism
         self.configure(fg_color=("white", "gray17"))
         
-        # Frame principal
-        self.frame_principal = ctk.CTkFrame(self, corner_radius=20)
-        self.frame_principal.pack(fill="both", expand=True, padx=25, pady=25)
+        # Frame principal con más padding
+        self.frame_principal = ctk.CTkFrame(self, corner_radius=15)
+        self.frame_principal.pack(fill="both", expand=True, padx=30, pady=30)
         
-        # Título con animación y mejor diseño
+        # Título con animación y tamaño más grande
         self.label_titulo = ctk.CTkLabel(
             self.frame_principal,
-            text="Selecciona las imágenes que necesitan margen en los bordes",
+            text="Selecciona las imágenes que necesitan margen",
             font=("Roboto", 28, "bold")
         )
         self.label_titulo.pack(pady=25)
         
-        # Frame para el grid de imágenes con scroll
+        # Frame para el grid de imágenes con scroll - más espacio
         self.frame_scroll = ctk.CTkScrollableFrame(
             self.frame_principal,
-            fg_color="transparent",
+            fg_color="transparent"
         )
-        self.frame_scroll.pack(fill="both", expand=True, padx=15, pady=15)
+        self.frame_scroll.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Configurar el grid para mostrar más columnas
+        self.frame_scroll.grid_columnconfigure(tuple(range(6)), weight=1)
         
         # Grid de imágenes
         self.cargar_imagenes(carpeta_entrada)
         
-        # Frame para botones con mejor espaciado
+        # Frame para botones con más espacio
         self.frame_botones = ctk.CTkFrame(
             self.frame_principal,
-            fg_color="transparent",
-            height=80
+            fg_color="transparent"
         )
-        self.frame_botones.pack(pady=25, fill="x")
+        self.frame_botones.pack(pady=25)
         
-        # Botones más grandes y llamativos
+        # Botones más grandes
+        button_width = 200
+        button_height = 40
+        
         self.btn_seleccionar = ctk.CTkButton(
             self.frame_botones,
             text="Seleccionar Todo",
             command=self.seleccionar_todo,
             font=("Roboto", 16),
-            corner_radius=12,
-            height=45,
-            hover_color=("gray70", "gray35")
+            corner_radius=10,
+            hover_color=("gray70", "gray35"),
+            width=button_width,
+            height=button_height
         )
-        self.btn_seleccionar.pack(side="left", padx=20, expand=True)
+        self.btn_seleccionar.pack(side="left", padx=15)
         
         self.btn_deseleccionar = ctk.CTkButton(
             self.frame_botones,
             text="Deseleccionar Todo",
             command=self.deseleccionar_todo,
             font=("Roboto", 16),
-            corner_radius=12,
-            height=45,
-            hover_color=("gray70", "gray35")
+            corner_radius=10,
+            hover_color=("gray70", "gray35"),
+            width=button_width,
+            height=button_height
         )
-        self.btn_deseleccionar.pack(side="left", padx=20, expand=True)
+        self.btn_deseleccionar.pack(side="left", padx=15)
         
         self.btn_confirmar = ctk.CTkButton(
             self.frame_botones,
-            text="Confirmar Selección",
+            text="Confirmar",
             command=self.confirmar,
             font=("Roboto", 16, "bold"),
-            corner_radius=12,
-            height=45,
-            hover_color=("#2CC985", "#2FA572")
+            corner_radius=10,
+            hover_color=("#2CC985", "#2FA572"),
+            width=button_width,
+            height=button_height
         )
-        self.btn_confirmar.pack(side="left", padx=20, expand=True)
+        self.btn_confirmar.pack(side="left", padx=15)
         
-        # Barra de progreso más visible
-        self.progreso = ctk.CTkProgressBar(
-            self.frame_principal,
-            height=15,
-            corner_radius=7
-        )
-        self.progreso.pack(fill="x", padx=25, pady=15)
+        # Barra de progreso más grande
+        self.progreso = ctk.CTkProgressBar(self.frame_principal, height=15)
+        self.progreso.pack(fill="x", padx=30, pady=15)
         self.progreso.set(0)
-        
-        # Centrar ventana
-        self.center_window()
         
         # Iniciar animación de carga
         self.after(100, self.animar_progreso)
@@ -215,18 +210,22 @@ class SelectorImagenes(ctk.CTkToplevel):
         self.previews = []
         row = 0
         col = 0
+        max_columnas = 6  # Aumentar número de columnas
+        
+        # Actualizar las extensiones permitidas para incluir webp
+        extensiones_permitidas = ('.png', '.jpg', '.jpeg', '.webp')
         
         for raiz, _, archivos in os.walk(carpeta_entrada):
             if 'Shein' not in raiz:
                 for archivo in archivos:
-                    if archivo.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    if archivo.lower().endswith(extensiones_permitidas):
                         ruta_completa = os.path.join(raiz, archivo)
                         preview = ImagenPreview(self.frame_scroll, ruta_completa)
-                        preview.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+                        preview.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
                         self.previews.append((ruta_completa, preview))
                         
                         col += 1
-                        if col >= 4:  # Reducimos a 4 columnas para imágenes más grandes
+                        if col >= max_columnas:
                             col = 0
                             row += 1
 
@@ -252,14 +251,6 @@ class SelectorImagenes(ctk.CTkToplevel):
             ruta for ruta, preview in self.previews if preview.var.get()
         }
         self.quit()
-
-    def center_window(self):
-        self.update_idletasks()
-        width = self.winfo_width()
-        height = self.winfo_height()
-        x = (self.winfo_screenwidth() // 2) - (width // 2)
-        y = (self.winfo_screenheight() // 2) - (height // 2)
-        self.geometry(f'{width}x{height}+{x}+{y}')
 
 def mostrar_selector_imagenes(carpeta_entrada):
     selector = SelectorImagenes(carpeta_entrada)
@@ -333,6 +324,9 @@ def procesar_carpeta(carpeta_entrada):
     
     logging.info(f"Iniciando procesamiento de imágenes en: {carpeta_entrada}")
     
+    # Actualizar las extensiones permitidas
+    extensiones_permitidas = ('.png', '.jpg', '.jpeg', '.webp')
+    
     # Recorrer todas las subcarpetas y archivos
     for raiz, dirs, archivos in os.walk(carpeta_entrada):
         # Excluir la carpeta Shein y sus subcarpetas
@@ -340,7 +334,7 @@ def procesar_carpeta(carpeta_entrada):
             dirs.remove('Shein')
         
         for archivo in archivos:
-            if archivo.lower().endswith(('.png', '.jpg', '.jpeg')):
+            if archivo.lower().endswith(extensiones_permitidas):
                 # Construir rutas
                 ruta_completa = os.path.join(raiz, archivo)
                 
@@ -360,8 +354,13 @@ def procesar_carpeta(carpeta_entrada):
                         aplicar_margen=ruta_completa in imagenes_con_margen
                     )
                     
-                    # Guardar imagen procesada
-                    ruta_salida = os.path.join(carpeta_destino, f"procesado_{archivo}")
+                    # Guardar imagen procesada - convertir WebP a PNG para mejor compatibilidad
+                    nombre_archivo = os.path.splitext(archivo)[0]
+                    if archivo.lower().endswith('.webp'):
+                        ruta_salida = os.path.join(carpeta_destino, f"procesado_{nombre_archivo}.png")
+                    else:
+                        ruta_salida = os.path.join(carpeta_destino, f"procesado_{archivo}")
+                        
                     imagen_procesada.save(ruta_salida, quality=95)
                     logging.info(f"Imagen guardada en: {ruta_salida}")
                     imagenes_procesadas += 1
