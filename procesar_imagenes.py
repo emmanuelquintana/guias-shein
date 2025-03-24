@@ -262,7 +262,7 @@ def mostrar_selector_imagenes(carpeta_entrada):
     return selector.imagenes_seleccionadas
 
 class ConfiguracionMarketplace:
-    def __init__(self, nombre, ancho, alto, formato, peso_maximo=None, margen=0.95):
+    def __init__(self, nombre, ancho, alto, formato, peso_maximo=None, margen=0.94):
         self.nombre = nombre
         self.ancho = ancho
         self.alto = alto
@@ -272,7 +272,7 @@ class ConfiguracionMarketplace:
 
 # Definir las configuraciones de cada marketplace
 CONFIGURACIONES = {
-    "SHEIN": ConfiguracionMarketplace("Shein", 1340, 1785, "PNG", margen=0.98),
+    "SHEIN": ConfiguracionMarketplace("Shein", 1340, 1785, "PNG", margen=0.97),
     "AMAZON": ConfiguracionMarketplace("Amazon", 1600, 1600, "PNG"),
     "LIVERPOOL": ConfiguracionMarketplace("Liverpool", 940, 1215, "JPEG", 500, margen=0.98)
 }
@@ -346,59 +346,69 @@ def seleccionar_marketplace():
 
 def ajustar_imagen(ruta_imagen, config, aplicar_margen=False):
     """
-    Ajusta una imagen según la configuración del marketplace
+    Ajusta una imagen según la configuración del marketplace.
+    - Si aplicar_margen=True, se usa "contain" + factor (margen).
+    - Si aplicar_margen=False, se usa "cover" (sin márgenes).
     """
+    from PIL import Image
+
     # Abrir la imagen
     imagen = Image.open(ruta_imagen)
-    
-    # Convertir a RGB si es necesario
+
+    # Convertir a RGB si hay transparencia
     if imagen.mode in ('RGBA', 'LA') or (imagen.mode == 'P' and 'transparency' in imagen.info):
         fondo = Image.new('RGB', imagen.size, (255, 255, 255))
         if imagen.mode == 'P':
             imagen = imagen.convert('RGBA')
         fondo.paste(imagen, mask=imagen.split()[-1])
         imagen = fondo
-    
-    # Obtener dimensiones
+
     ancho_original, alto_original = imagen.size
     ancho_destino, alto_destino = config.ancho, config.alto
-    
-    # Calcular proporciones
     proporcion_original = ancho_original / alto_original
     proporcion_destino = ancho_destino / alto_destino
-    
-    # Calcular nuevas dimensiones
+
     if aplicar_margen:
-        # Si se aplica margen, usar el 95% del espacio
-        factor = config.margen
+        # ------ MODO "CONTAIN" con factor (margen) ------
+        factor = config.margen  # p.ej. 0.95, 0.98...
         if proporcion_original > proporcion_destino:
+            # Se ajusta el ancho al % del ancho destino
             nuevo_ancho = int(ancho_destino * factor)
             nuevo_alto = int(nuevo_ancho / proporcion_original)
         else:
+            # Se ajusta el alto al % del alto destino
             nuevo_alto = int(alto_destino * factor)
             nuevo_ancho = int(nuevo_alto * proporcion_original)
+        
+        # Redimensionamos para "encajar"
+        imagen_redimensionada = imagen.resize((nuevo_ancho, nuevo_alto), Image.Resampling.LANCZOS)
+        
+        # Fondo blanco final
+        imagen_final = Image.new('RGB', (ancho_destino, alto_destino), (255, 255, 255))
+        x = (ancho_destino - nuevo_ancho) // 2
+        y = (alto_destino - nuevo_alto) // 2
+        imagen_final.paste(imagen_redimensionada, (x, y))
+
     else:
-        # Sin margen, usar el espacio completo
-        if proporcion_original > proporcion_destino:
-            nuevo_ancho = ancho_destino
-            nuevo_alto = int(nuevo_ancho / proporcion_original)
-        else:
-            nuevo_alto = alto_destino
-            nuevo_ancho = int(nuevo_alto * proporcion_original)
-    
-    # Redimensionar la imagen
-    imagen_redimensionada = imagen.resize((nuevo_ancho, nuevo_alto), Image.Resampling.LANCZOS)
-    
-    # Crear imagen final con fondo blanco
-    imagen_final = Image.new('RGB', (ancho_destino, alto_destino), (255, 255, 255))
-    
-    # Calcular posición para centrar
-    x = (ancho_destino - nuevo_ancho) // 2
-    y = (alto_destino - nuevo_alto) // 2
-    
-    # Pegar imagen redimensionada
-    imagen_final.paste(imagen_redimensionada, (x, y))
-    
+        # ------ MODO "COVER" ------
+        # 1. Calculamos el factor de escalado para que llene (o sobrepase) el tamaño destino
+        factor_llenado = max(ancho_destino / ancho_original, alto_destino / alto_original)
+
+        # 2. Dimensiones escaladas
+        escalado_ancho = int(ancho_original * factor_llenado)
+        escalado_alto = int(alto_original * factor_llenado)
+
+        imagen_escalada = imagen.resize((escalado_ancho, escalado_alto), Image.Resampling.LANCZOS)
+
+        # 3. Recortamos la imagen escalada para que quede exactamente del tamaño deseado
+        #    Centrando el recorte
+        x_inicial = (escalado_ancho - ancho_destino) // 2
+        y_inicial = (escalado_alto - alto_destino) // 2
+        x_final = x_inicial + ancho_destino
+        y_final = y_inicial + alto_destino
+
+        imagen_final = imagen_escalada.crop((x_inicial, y_inicial, x_final, y_final))
+
     return imagen_final
 
 def guardar_imagen_optimizada(imagen, ruta_salida, config):
