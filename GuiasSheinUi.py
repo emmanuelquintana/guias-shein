@@ -51,7 +51,7 @@ def pdf_to_jpg(pdf_path, output_folder, min_width, min_height, day, pdf_info_tex
 
     pdf_document.close()
 
-def process_images(image_folder, day, pdf_info_text, progress_bar, status_label, root):
+def process_images(image_folder, day, pdf_info_text, progress_bar, status_label, root, prefix=""):
     doc = Document()
     for section in doc.sections:
         section.left_margin = Cm(0.5)
@@ -85,14 +85,14 @@ def process_images(image_folder, day, pdf_info_text, progress_bar, status_label,
 
     hojas_de_4_imagenes = math.ceil(total_imagenes_inicio / 4)
     fecha_actual = datetime.now().strftime("%d-%m-%Y")
-    nombre_archivo_doc = f"Guias Shein {fecha_actual} {day} medidas pequeñas4.docx"
-    nombre_archivo_pdf = f"Guias Shein {fecha_actual} {day} medidas pequeñas4.pdf"
+    nombre_archivo_doc = f"{prefix}Guias Shein {fecha_actual} {day} medidas pequeñas4.docx"
+    nombre_archivo_pdf = f"{prefix}Guias Shein {fecha_actual} {day} medidas pequeñas4.pdf"
     doc.save(nombre_archivo_doc)
     logger.info(f"El archivo Word '{nombre_archivo_doc}' ha sido creado con éxito.")
     update_progress(root, progress_bar, status_label, 100, "Convirtiendo el documento Word a PDF...")
     convert(nombre_archivo_doc)
     logger.info(f"El archivo PDF '{nombre_archivo_pdf}' ha sido creado con éxito.")
-    nombre_archivo_pdf_sin_pares = f"Guias Shein {fecha_actual} {day} medidas pequeñas canguros.pdf"
+    nombre_archivo_pdf_sin_pares = f"{prefix}Guias Shein {fecha_actual} {day} medidas pequeñas canguros.pdf"
     eliminar_hojas_pares(nombre_archivo_pdf, nombre_archivo_pdf_sin_pares, progress_bar, status_label, root)
     logger.info(f"El archivo PDF '{nombre_archivo_pdf_sin_pares}' ha sido creado con las páginas pares eliminadas.")
     os.remove(nombre_archivo_pdf)
@@ -100,7 +100,7 @@ def process_images(image_folder, day, pdf_info_text, progress_bar, status_label,
     logger.info(f"Total de imágenes al inicio: {total_imagenes_inicio}")
     logger.info(f"Total de hojas de 4 imágenes: {hojas_de_4_imagenes}")
     logger.info(f"Total de Pedidos procesados: {total_imagenes_inicio / 2}")
-    process_remaining_images_as_large(image_folder, day, pdf_info_text, progress_bar, status_label, root)
+    process_remaining_images_as_large(image_folder, day, pdf_info_text, progress_bar, status_label, root, prefix)
 
 def eliminar_hojas_pares(nombre_archivo_pdf, nombre_archivo_pdf_sin_pares, progress_bar, status_label, root):
     pdf_document = fitz.open(nombre_archivo_pdf)
@@ -134,35 +134,42 @@ def select_pdf_and_convert():
     def process_weekend():
         file_paths = filedialog.askopenfilenames(title="Seleccionar archivos PDF (Viernes, Sábado y Domingo)", filetypes=[("PDF files", "*.pdf")])
         if len(file_paths) == 3:
-            process_files(file_paths, is_weekend=True)
+            process_files(file_paths, is_weekend=True, prefix="")
         else:
             messagebox.showerror("Error", "Debe seleccionar tres archivos PDF (Viernes, Sábado y Domingo).")
 
-    def process_files(file_paths, is_weekend):
+    def process_weekend_ps():
+        file_paths = filedialog.askopenfilenames(title="Seleccionar archivos PDF (Viernes, Sábado y Domingo)", filetypes=[("PDF files", "*.pdf")])
+        if len(file_paths) == 3:
+            process_files(file_paths, is_weekend=True, prefix="PS ")
+        else:
+            messagebox.showerror("Error", "Debe seleccionar tres archivos PDF (Viernes, Sábado y Domingo).")
+
+    def process_files(file_paths, is_weekend, prefix=""):
         def run_processing():
             if is_weekend:
                 for file_path in file_paths:
                     day = get_day_from_filename(file_path)
-                    output_folder_name = f"GUIAS SHEIN {datetime.now().strftime('%Y-%m-%d')} - {day} - IMAGENES"
+                    output_folder_name = f"{prefix}GUIAS SHEIN {datetime.now().strftime('%Y-%m-%d')} - {day} - IMAGENES"
                     output_folder_path = os.path.join(os.getcwd(), output_folder_name)
                     if not os.path.exists(output_folder_path):
                         os.makedirs(output_folder_path)
                     min_width = 896
                     min_height = 1538
                     pdf_to_jpg(file_path, output_folder_path, min_width, min_height, day, pdf_info_text, progress_bar, status_label, root)
-                    process_images(output_folder_path, day, pdf_info_text, progress_bar, status_label, root)
+                    process_images(output_folder_path, day, pdf_info_text, progress_bar, status_label, root, prefix)
                 ask_to_process_another(root)
             else:
                 file_path = file_paths[0]
                 day = get_day_from_filename(file_path)
-                output_folder_name = f"GUIAS SHEIN {datetime.now().strftime('%Y-%m-%d')} - {day} - IMAGENES"
+                output_folder_name = f"{prefix}GUIAS SHEIN {datetime.now().strftime('%Y-%m-%d')} - {day} - IMAGENES"
                 output_folder_path = os.path.join(os.getcwd(), output_folder_name)
                 if not os.path.exists(output_folder_path):
                     os.makedirs(output_folder_path)
                 min_width = 896
                 min_height = 1538
                 pdf_to_jpg(file_path, output_folder_path, min_width, min_height, day, pdf_info_text, progress_bar, status_label, root)
-                process_images(output_folder_path, day, pdf_info_text, progress_bar, status_label, root)
+                process_images(output_folder_path, day, pdf_info_text, progress_bar, status_label, root, prefix)
                 ask_to_process_another(root)
 
         threading.Thread(target=run_processing).start()
@@ -178,6 +185,9 @@ def select_pdf_and_convert():
     weekend_button = tk.Button(root, text="Seleccionar PDFs para el fin de semana", command=process_weekend)
     weekend_button.pack(pady=10)
 
+    weekend_ps_button = tk.Button(root, text="Seleccionar PDFs para el fin de semana Pure And Simple", command=process_weekend_ps)
+    weekend_ps_button.pack(pady=10)
+
     progress_bar = ttk.Progressbar(root, orient='horizontal', length=500, mode='determinate')
     progress_bar.pack(pady=20)
 
@@ -189,7 +199,7 @@ def select_pdf_and_convert():
 
     root.mainloop()
 
-def process_remaining_images_as_large(image_folder, day, pdf_info_text, progress_bar, status_label, root):
+def process_remaining_images_as_large(image_folder, day, pdf_info_text, progress_bar, status_label, root, prefix=""):
     doc = Document()
     for section in doc.sections:
         section.left_margin = Cm(0.5)
@@ -225,8 +235,8 @@ def process_remaining_images_as_large(image_folder, day, pdf_info_text, progress
         os.remove(img1_temp)
 
     fecha_actual = datetime.now().strftime("%d-%m-%Y")
-    nombre_archivo_doc = f"Guias Shein {fecha_actual} {day} medidas grandes.docx"
-    nombre_archivo_pdf = f"Guias Shein {fecha_actual} {day} medidas grandes.pdf"
+    nombre_archivo_doc = f"{prefix}Guias Shein {fecha_actual} {day} medidas grandes.docx"
+    nombre_archivo_pdf = f"{prefix}Guias Shein {fecha_actual} {day} medidas grandes.pdf"
     doc.save(nombre_archivo_doc)
     logger.info(f"El archivo Word '{nombre_archivo_doc}' ha sido creado con éxito.")
     convert(nombre_archivo_doc)
