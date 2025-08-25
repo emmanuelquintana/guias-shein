@@ -84,9 +84,8 @@ def organizar_escritorio():
     notificador.show_toast("Organización del Escritorio", "Se completó la organización diaria del escritorio.", duration=5)
 
 # Ejecución principal
-if __name__ == "_main_":
+if __name__ == "__main__":
     notificador.show_toast("Organizador de Archivos", "El script de organización ha comenzado.", duration=5)
     organizar_descargas()  # Organización semanal
     organizar_escritorio()  # Organización diaria
     notificador.show_toast("Organizador de Archivos", "El proceso de organización ha finalizado.", duration=5)
-    logging.info("El proceso de organización ha finalizado.")

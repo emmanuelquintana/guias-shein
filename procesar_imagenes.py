@@ -1,28 +1,20 @@
-from PIL import Image
+from PIL import Image, ImageOps, ImageStat, ImageTk
 import os
 import tkinter as tk
 from tkinter import filedialog, ttk
 import logging
 from datetime import datetime
-import numpy as np
-from PIL import ImageOps, ImageStat
-from PIL import ImageTk
 import customtkinter as ctk
 from pathlib import Path
-import threading
 from itertools import cycle
-import time
 
+# ----------------------------
 # Configurar logging
+# ----------------------------
 def configurar_logging():
-    # Crear carpeta de logs si no existe
     if not os.path.exists('logs'):
         os.makedirs('logs')
-    
-    # Configurar el nombre del archivo de log con la fecha
-    nombre_log = f'logs/procesamiento_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
-    
-    # Configurar el logging
+    nombre_log = f'logs/procesamiento_{datetime.now():%Y%m%d_%H%M%S}.log'
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -32,575 +24,312 @@ def configurar_logging():
         ]
     )
 
+# ----------------------------
+# Selección de carpeta
+# ----------------------------
 def seleccionar_carpeta(titulo):
     root = tk.Tk()
-    root.withdraw()  # Ocultar la ventana principal
-    carpeta = filedialog.askdirectory(title=titulo)
-    return carpeta
+    root.withdraw()
+    return filedialog.askdirectory(title=titulo)
 
-def detectar_tipo_imagen(imagen):
-    """
-    Detecta si la imagen es una prenda completa o un detalle
-    Returns: True si es prenda completa, False si es detalle
-    """
-    # Convertir a escala de grises
-    imagen_gris = imagen.convert('L')
-    
-    # Obtener los bordes de la imagen (donde hay contenido)
-    bordes = ImageOps.invert(imagen_gris)
-    stat = ImageStat.Stat(bordes)
-    
-    # Calcular el porcentaje de píxeles no blancos en los bordes
-    borde_superior = bordes.crop((0, 0, bordes.width, 10))
-    borde_inferior = bordes.crop((0, bordes.height-10, bordes.width, bordes.height))
-    borde_izquierdo = bordes.crop((0, 0, 10, bordes.height))
-    borde_derecho = bordes.crop((bordes.width-10, 0, bordes.width, bordes.height))
-    
-    stat_sup = ImageStat.Stat(borde_superior)
-    stat_inf = ImageStat.Stat(borde_inferior)
-    stat_izq = ImageStat.Stat(borde_izquierdo)
-    stat_der = ImageStat.Stat(borde_derecho)
-    
-    # Si hay contenido significativo en los bordes, probablemente sea una prenda completa
-    umbral = 20  # Ajusta este valor según necesites
-    bordes_con_contenido = sum([
-        stat_sup.mean[0] > umbral,
-        stat_inf.mean[0] > umbral,
-        stat_izq.mean[0] > umbral,
-        stat_der.mean[0] > umbral
-    ])
-    
-    return bordes_con_contenido >= 2  # Si hay contenido en al menos 2 bordes
-
+# ----------------------------
+# Preview y selector de imágenes
+# ----------------------------
 class ImagenPreview(ctk.CTkFrame):
-    def __init__(self, master, imagen_path, *args, **kwargs):
-        super().__init__(master, *args, **kwargs)
-        self.configure(fg_color=("white", "gray20"))
-        
-        # Cargar y mostrar miniatura
-        self.imagen = Image.open(imagen_path)
-        self.imagen.thumbnail((150, 150))
-        self.photo = ImageTk.PhotoImage(self.imagen)
-        
-        # Contenedor principal con efecto glassmorphism
-        self.container = ctk.CTkFrame(self, corner_radius=10, fg_color=("white", "gray25"))
-        self.container.pack(padx=5, pady=5, fill="both", expand=True)
-        
-        # Imagen
-        self.label_imagen = ctk.CTkLabel(self.container, image=self.photo, text="")
-        self.label_imagen.pack(padx=5, pady=5)
-        
-        # Nombre del archivo
-        nombre = Path(imagen_path).name
-        if len(nombre) > 20:
-            nombre = nombre[:17] + "..."
-        self.label_nombre = ctk.CTkLabel(self.container, text=nombre, 
-                                       font=("Roboto", 12))
-        self.label_nombre.pack(pady=2)
-        
-        # Checkbox
+    def __init__(self, master, ruta, *args, **kw):
+        super().__init__(master, *args, **kw)
+        self.configure(fg_color=("white","gray20"))
+        img = Image.open(ruta)
+        img.thumbnail((150,150))
+        self.photo = ImageTk.PhotoImage(img)
+        cont = ctk.CTkFrame(self, corner_radius=10, fg_color=("white","gray25"))
+        cont.pack(padx=5, pady=5, fill="both", expand=True)
+        ctk.CTkLabel(cont, image=self.photo, text="").pack(padx=5, pady=5)
+        name = Path(ruta).name
+        if len(name) > 20:
+            name = name[:17] + "..."
+        ctk.CTkLabel(cont, text=name, font=("Roboto",12)).pack(pady=2)
         self.var = tk.BooleanVar()
-        self.checkbox = ctk.CTkCheckBox(self.container, text="", variable=self.var)
-        self.checkbox.pack(pady=5)
+        ctk.CTkCheckBox(cont, variable=self.var, text="").pack(pady=5)
 
 class SelectorImagenes(ctk.CTkToplevel):
-    def __init__(self, carpeta_entrada):
+    def __init__(self, carpeta):
         super().__init__()
-        
-        # Configurar tamaño inicial más grande
-        ancho_pantalla = self.winfo_screenwidth()
-        alto_pantalla = self.winfo_screenheight()
-        # Usar 80% del tamaño de la pantalla
-        ancho_ventana = int(ancho_pantalla * 0.8)
-        alto_ventana = int(alto_pantalla * 0.8)
-        
-        self.title("Selector de Imágenes")
-        self.geometry(f"{ancho_ventana}x{alto_ventana}")
-        self.minsize(1200, 800)  # Tamaño mínimo de la ventana
-        
-        # Configurar para que inicie maximizada
+        w,h = self.winfo_screenwidth(), self.winfo_screenheight()
+        self.geometry(f"{int(w*0.8)}x{int(h*0.8)}")
+        self.minsize(1200,800)
         self.state('zoomed')
-        
-        self.imagenes_seleccionadas = set()
-        
-        # Configurar el estilo glassmorphism
-        self.configure(fg_color=("white", "gray17"))
-        
-        # Frame principal con más padding
-        self.frame_principal = ctk.CTkFrame(self, corner_radius=15)
-        self.frame_principal.pack(fill="both", expand=True, padx=30, pady=30)
-        
-        # Título con animación y tamaño más grande
-        self.label_titulo = ctk.CTkLabel(
-            self.frame_principal,
+        self.title("Selecciona las imágenes")
+        self.configure(fg_color=("white","gray17"))
+        self.seleccionadas = set()
+
+        frm = ctk.CTkFrame(self, corner_radius=15)
+        frm.pack(fill="both", expand=True, padx=30, pady=30)
+        ctk.CTkLabel(
+            frm,
             text="Selecciona las imágenes que necesitan margen",
-            font=("Roboto", 28, "bold")
-        )
-        self.label_titulo.pack(pady=25)
-        
-        # Frame para el grid de imágenes con scroll - más espacio
-        self.frame_scroll = ctk.CTkScrollableFrame(
-            self.frame_principal,
-            fg_color="transparent"
-        )
-        self.frame_scroll.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        # Configurar el grid para mostrar más columnas
-        self.frame_scroll.grid_columnconfigure(tuple(range(6)), weight=1)
-        
-        # Grid de imágenes
-        self.cargar_imagenes(carpeta_entrada)
-        
-        # Frame para botones con más espacio
-        self.frame_botones = ctk.CTkFrame(
-            self.frame_principal,
-            fg_color="transparent"
-        )
-        self.frame_botones.pack(pady=25)
-        
-        # Botones más grandes
-        button_width = 200
-        button_height = 40
-        
-        self.btn_seleccionar = ctk.CTkButton(
-            self.frame_botones,
-            text="Seleccionar Todo",
-            command=self.seleccionar_todo,
-            font=("Roboto", 16),
-            corner_radius=10,
-            hover_color=("gray70", "gray35"),
-            width=button_width,
-            height=button_height
-        )
-        self.btn_seleccionar.pack(side="left", padx=15)
-        
-        self.btn_deseleccionar = ctk.CTkButton(
-            self.frame_botones,
-            text="Deseleccionar Todo",
-            command=self.deseleccionar_todo,
-            font=("Roboto", 16),
-            corner_radius=10,
-            hover_color=("gray70", "gray35"),
-            width=button_width,
-            height=button_height
-        )
-        self.btn_deseleccionar.pack(side="left", padx=15)
-        
-        self.btn_confirmar = ctk.CTkButton(
-            self.frame_botones,
-            text="Confirmar",
-            command=self.confirmar,
-            font=("Roboto", 16, "bold"),
-            corner_radius=10,
-            hover_color=("#2CC985", "#2FA572"),
-            width=button_width,
-            height=button_height
-        )
-        self.btn_confirmar.pack(side="left", padx=15)
-        
-        # Barra de progreso más grande
-        self.progreso = ctk.CTkProgressBar(self.frame_principal, height=15)
-        self.progreso.pack(fill="x", padx=30, pady=15)
-        self.progreso.set(0)
-        
-        # Iniciar animación de carga
-        self.after(100, self.animar_progreso)
+            font=("Roboto",28,"bold")
+        ).pack(pady=25)
 
-    def cargar_imagenes(self, carpeta_entrada):
+        scroll = ctk.CTkScrollableFrame(frm, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=20, pady=20)
+        scroll.grid_columnconfigure(tuple(range(6)), weight=1)
+
         self.previews = []
-        row = 0
-        col = 0
-        max_columnas = 6  # Aumentar número de columnas
-        
-        # Actualizar las extensiones permitidas para incluir webp
-        extensiones_permitidas = ('.png', '.jpg', '.jpeg', '.webp')
-        
-        for raiz, _, archivos in os.walk(carpeta_entrada):
-            if 'Shein' not in raiz:
-                for archivo in archivos:
-                    if archivo.lower().endswith(extensiones_permitidas):
-                        ruta_completa = os.path.join(raiz, archivo)
-                        preview = ImagenPreview(self.frame_scroll, ruta_completa)
-                        preview.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
-                        self.previews.append((ruta_completa, preview))
-                        
-                        col += 1
-                        if col >= max_columnas:
-                            col = 0
-                            row += 1
+        row = col = 0
+        for raiz, _, archivos in os.walk(carpeta):
+            if 'Shein' in raiz:
+                continue
+            for f in archivos:
+                if f.lower().endswith(('.png','.jpg','.jpeg','.webp')):
+                    ruta = os.path.join(raiz, f)
+                    pv = ImagenPreview(scroll, ruta)
+                    pv.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
+                    self.previews.append((ruta, pv))
+                    col += 1
+                    if col >= 6:
+                        col = 0
+                        row += 1
 
-    def animar_progreso(self):
-        progress_values = cycle([i/100 for i in range(0, 101, 2)])
-        
-        def update_progress():
-            self.progreso.set(next(progress_values))
-            self.after(50, update_progress)
-        
-        update_progress()
+        btns = ctk.CTkFrame(frm, fg_color="transparent")
+        btns.pack(pady=25)
+        for text, cmd in [
+            ("Seleccionar Todo", self._sel_all),
+            ("Deseleccionar Todo", self._desel_all),
+            ("Confirmar", self._confirm)
+        ]:
+            b = ctk.CTkButton(
+                btns, text=text, command=cmd,
+                font=("Roboto",16), corner_radius=10,
+                width=180, height=40
+            )
+            b.pack(side="left", padx=10)
 
-    def seleccionar_todo(self):
-        for _, preview in self.previews:
-            preview.var.set(True)
+        self.mainloop()
 
-    def deseleccionar_todo(self):
-        for _, preview in self.previews:
-            preview.var.set(False)
-
-    def confirmar(self):
-        self.imagenes_seleccionadas = {
-            ruta for ruta, preview in self.previews if preview.var.get()
-        }
+    def _sel_all(self):
+        for _, pv in self.previews:
+            pv.var.set(True)
+    def _desel_all(self):
+        for _, pv in self.previews:
+            pv.var.set(False)
+    def _confirm(self):
+        self.seleccionadas = {r for r, pv in self.previews if pv.var.get()}
         self.quit()
 
-def mostrar_selector_imagenes(carpeta_entrada):
-    selector = SelectorImagenes(carpeta_entrada)
-    selector.mainloop()
+def mostrar_selector_imagenes(carpeta):
+    dlg = SelectorImagenes(carpeta)
     try:
-        selector.destroy()
+        dlg.destroy()
     except:
         pass
-    return selector.imagenes_seleccionadas
+    return dlg.seleccionadas
 
+# ----------------------------
+# Configuraciones de marketplaces
+# ----------------------------
 class ConfiguracionMarketplace:
-    def __init__(self, nombre, ancho, alto, formato, peso_maximo=None, margen=0.94):
+    def __init__(self, nombre, ancho, alto, formato, peso_max=None, margen=0.94):
         self.nombre = nombre
         self.ancho = ancho
         self.alto = alto
         self.formato = formato
-        self.peso_maximo = peso_maximo  # en KB
+        self.peso_maximo = peso_max
         self.margen = margen
 
-# Definir las configuraciones de cada marketplace
 CONFIGURACIONES = {
-    "SHEIN": ConfiguracionMarketplace("Shein", 1340, 1785, "PNG", margen=0.97),
-    "AMAZON": ConfiguracionMarketplace("Amazon", 1600, 1600, "PNG"),
-    "LIVERPOOL": ConfiguracionMarketplace("Liverpool", 940, 1215, "JPEG", 500, margen=0.98)
+    "SHEIN":     ConfiguracionMarketplace("Shein",    1340, 1785, "PNG", margen=0.97),
+    "AMAZON":    ConfiguracionMarketplace("Amazon",   1600, 1600, "PNG"),
+    "LIVERPOOL": ConfiguracionMarketplace("Liverpool", 940, 1215, "JPEG", 500, margen=0.98),
 }
 
 class SelectorMarketplace(ctk.CTkToplevel):
     def __init__(self):
         super().__init__()
         self.title("Seleccionar Marketplace")
-        self.geometry("400x400")  # Aumentamos el alto para el nuevo botón
-        
-        # Configurar el estilo glassmorphism
-        self.configure(fg_color=("white", "gray17"))
-        
-        # Frame principal
-        self.frame = ctk.CTkFrame(self, corner_radius=15)
-        self.frame.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        # Título
-        self.label = ctk.CTkLabel(
-            self.frame,
-            text="Selecciona el Marketplace",
-            font=("Roboto", 20, "bold")
-        )
-        self.label.pack(pady=20)
-        
-        # Variable para almacenar la selección
-        self.seleccion = None
-        
-        # Crear botones para cada marketplace
-        for config in CONFIGURACIONES.values():
-            btn = ctk.CTkButton(
-                self.frame,
-                text=config.nombre,
-                command=lambda c=config: self.seleccionar(c),
-                font=("Roboto", 14),
-                corner_radius=10,
-                hover_color=("#2CC985", "#2FA572"),
-                height=35
-            )
-            btn.pack(pady=10, padx=20, fill="x")
-        
-        # Separador
-        ttk.Separator(self.frame, orient='horizontal').pack(fill='x', pady=15, padx=20)
-        
-        # Botón para procesar todos los marketplaces
-        btn_todos = ctk.CTkButton(
-            self.frame,
-            text="Procesar para todos los Marketplaces",
-            command=lambda: self.seleccionar("TODOS"),
-            font=("Roboto", 14, "bold"),
-            corner_radius=10,
-            fg_color="#FF6B6B",  # Color distintivo
-            hover_color="#FF4949",
-            height=45
-        )
-        btn_todos.pack(pady=15, padx=20, fill="x")
-    
-    def seleccionar(self, config):
-        self.seleccion = config
+        self.geometry("400x400")
+        self.configure(fg_color=("white","gray17"))
+        frm = ctk.CTkFrame(self, corner_radius=15)
+        frm.pack(fill="both", expand=True, padx=20, pady=20)
+        ctk.CTkLabel(frm, text="Selecciona el Marketplace", font=("Roboto",20,"bold")).pack(pady=20)
+        self.elegido = None
+        for cfg in CONFIGURACIONES.values():
+            ctk.CTkButton(
+                frm, text=cfg.nombre,
+                command=lambda c=cfg: self._sel(c),
+                font=("Roboto",14), corner_radius=10,
+                hover_color=("#2CC985","#2FA572"), height=35
+            ).pack(fill="x", padx=20, pady=8)
+        ttk.Separator(frm, orient='horizontal').pack(fill="x", padx=20, pady=10)
+        ctk.CTkButton(
+            frm, text="Procesar TODOS",
+            command=lambda: self._sel("TODOS"),
+            font=("Roboto",14,"bold"), corner_radius=10,
+            fg_color="#FF6B6B", hover_color="#FF4949", height=40
+        ).pack(fill="x", padx=20, pady=8)
+        self.mainloop()
+
+    def _sel(self, c):
+        self.elegido = c
         self.quit()
 
 def seleccionar_marketplace():
-    selector = SelectorMarketplace()
-    selector.mainloop()
+    dlg = SelectorMarketplace()
     try:
-        seleccion = selector.seleccion
-        selector.destroy()
+        sel = dlg.elegido
+        dlg.destroy()
     except:
-        pass
-    return seleccion
+        sel = None
+    return sel
 
-def ajustar_imagen(ruta_imagen, config, aplicar_margen=False):
-    """
-    Ajusta una imagen según la configuración del marketplace.
-    - Si aplicar_margen=True, se usa "contain" + factor (margen).
-    - Si aplicar_margen=False, se usa "cover" (sin márgenes).
-    """
-    from PIL import Image
+# ----------------------------
+# Ajuste de imagen
+# ----------------------------
+def ajustar_imagen(ruta, config, aplicar_margen=False):
+    img = Image.open(ruta)
+    # Convertir transparencia a RGB
+    if img.mode in ('RGBA','LA') or (img.mode=='P' and 'transparency' in img.info):
+        fondo = Image.new('RGB', img.size, (255,255,255))
+        if img.mode == 'P':
+            img = img.convert('RGBA')
+        fondo.paste(img, mask=img.split()[-1])
+        img = fondo
 
-    # Abrir la imagen
-    imagen = Image.open(ruta_imagen)
+    w_o, h_o = img.size
+    w_d, h_d = config.ancho, config.alto
 
-    # Convertir a RGB si hay transparencia
-    if imagen.mode in ('RGBA', 'LA') or (imagen.mode == 'P' and 'transparency' in imagen.info):
-        fondo = Image.new('RGB', imagen.size, (255, 255, 255))
-        if imagen.mode == 'P':
-            imagen = imagen.convert('RGBA')
-        fondo.paste(imagen, mask=imagen.split()[-1])
-        imagen = fondo
+    # SHEIN con margen mínimo en costados
+    if config.nombre.upper() == "SHEIN" and aplicar_margen:
+        m = 10  # margen lateral en px
+        # Cover vertical: ajustar por altura
+        factor_h = h_d / h_o
+        nw = int(w_o * factor_h)
+        nh = h_d
+        # Si queda muy ancho, reducir para que entre con margen
+        max_w = w_d - 2*m
+        if nw > max_w:
+            factor_w = max_w / w_o
+            nw = int(w_o * factor_w)
+            nh = int(h_o * factor_w)
+        img_r = img.resize((nw, nh), Image.Resampling.LANCZOS)
+        canvas = Image.new('RGB', (w_d, h_d), (255,255,255))
+        x = (w_d - nw) // 2
+        y = 0
+        canvas.paste(img_r, (x, y))
+        return canvas
 
-    ancho_original, alto_original = imagen.size
-    ancho_destino, alto_destino = config.ancho, config.alto
-    proporcion_original = ancho_original / alto_original
-    proporcion_destino = ancho_destino / alto_destino
+    # SHEIN sin margen: cover estándar
+    if config.nombre.upper() == "SHEIN":
+        factor = max(w_d / w_o, h_d / h_o)
+        nw = int(w_o * factor)
+        nh = int(h_o * factor)
+        img_e = img.resize((nw, nh), Image.Resampling.LANCZOS)
+        x0 = (nw - w_d) // 2
+        y0 = (nh - h_d) // 2
+        return img_e.crop((x0, y0, x0 + w_d, y0 + h_d))
 
+    # Otros marketplaces con margen: contain
     if aplicar_margen:
-        # ------ MODO "CONTAIN" con factor (margen) ------
-        factor = config.margen  # p.ej. 0.95, 0.98...
-        if proporcion_original > proporcion_destino:
-            # Se ajusta el ancho al % del ancho destino
-            nuevo_ancho = int(ancho_destino * factor)
-            nuevo_alto = int(nuevo_ancho / proporcion_original)
+        f = config.margen
+        if w_o / h_o > w_d / h_d:
+            nw = int(w_d * f)
+            nh = int(nw / (w_o / h_o))
         else:
-            # Se ajusta el alto al % del alto destino
-            nuevo_alto = int(alto_destino * factor)
-            nuevo_ancho = int(nuevo_alto * proporcion_original)
-        
-        # Redimensionamos para "encajar"
-        imagen_redimensionada = imagen.resize((nuevo_ancho, nuevo_alto), Image.Resampling.LANCZOS)
-        
-        # Fondo blanco final
-        imagen_final = Image.new('RGB', (ancho_destino, alto_destino), (255, 255, 255))
-        x = (ancho_destino - nuevo_ancho) // 2
-        y = (alto_destino - nuevo_alto) // 2
-        imagen_final.paste(imagen_redimensionada, (x, y))
+            nh = int(h_d * f)
+            nw = int(nh * (w_o / h_o))
+        img_r = img.resize((nw, nh), Image.Resampling.LANCZOS)
+        canvas = Image.new('RGB', (w_d, h_d), (255,255,255))
+        canvas.paste(img_r, ((w_d - nw)//2, (h_d - nh)//2))
+        return canvas
 
-    else:
-        # ------ MODO "COVER" ------
-        # 1. Calculamos el factor de escalado para que llene (o sobrepase) el tamaño destino
-        factor_llenado = max(ancho_destino / ancho_original, alto_destino / alto_original)
+    # COVER por defecto
+    factor = max(w_d / w_o, h_d / h_o)
+    nw = int(w_o * factor)
+    nh = int(h_o * factor)
+    img_e = img.resize((nw, nh), Image.Resampling.LANCZOS)
+    x0 = (nw - w_d) // 2
+    y0 = (nh - h_d) // 2
+    return img_e.crop((x0, y0, x0 + w_d, y0 + h_d))
 
-        # 2. Dimensiones escaladas
-        escalado_ancho = int(ancho_original * factor_llenado)
-        escalado_alto = int(alto_original * factor_llenado)
-
-        imagen_escalada = imagen.resize((escalado_ancho, escalado_alto), Image.Resampling.LANCZOS)
-
-        # 3. Recortamos la imagen escalada para que quede exactamente del tamaño deseado
-        #    Centrando el recorte
-        x_inicial = (escalado_ancho - ancho_destino) // 2
-        y_inicial = (escalado_alto - alto_destino) // 2
-        x_final = x_inicial + ancho_destino
-        y_final = y_inicial + alto_destino
-
-        imagen_final = imagen_escalada.crop((x_inicial, y_inicial, x_final, y_final))
-
-    return imagen_final
-
-def guardar_imagen_optimizada(imagen, ruta_salida, config):
-    """
-    Guarda la imagen con la optimización adecuada según el marketplace
-    """
-    # Determinar parámetros de guardado según el formato
+# ----------------------------
+# Guardar imagen optimizada
+# ----------------------------
+def guardar_imagen_optimizada(img, ruta_salida, config):
     if config.formato == "JPEG":
-        # Empezar con calidad alta
         calidad = 95
         while True:
-            # Guardar temporalmente para verificar tamaño
-            imagen.save(ruta_salida, format=config.formato, quality=calidad)
-            
-            # Verificar tamaño si hay límite
+            img.save(ruta_salida, format="JPEG", quality=calidad)
             if config.peso_maximo:
-                tamano_actual = os.path.getsize(ruta_salida) / 1024  # Convertir a KB
-                if tamano_actual <= config.peso_maximo:
+                tam = os.path.getsize(ruta_salida) / 1024
+                if tam <= config.peso_maximo:
                     break
-                
-                # Reducir calidad si excede el tamaño
                 calidad -= 5
-                if calidad < 30:  # Establecer un límite mínimo de calidad
-                    logging.warning(f"No se pudo reducir el tamaño de {ruta_salida} por debajo de {config.peso_maximo}KB")
+                if calidad < 30:
+                    logging.warning(f"No se pudo reducir {ruta_salida} < {config.peso_maximo}KB")
                     break
             else:
                 break
-    else:  # PNG
-        imagen.save(ruta_salida, format=config.formato)
-
-def procesar_todos_marketplaces(carpeta_entrada, imagenes_con_margen):
-    for config in CONFIGURACIONES.values():
-        logging.info(f"\nIniciando procesamiento para {config.nombre}")
-        
-        # Crear carpeta del marketplace dentro de la carpeta de entrada
-        carpeta_salida = os.path.join(carpeta_entrada, config.nombre)
-        if not os.path.exists(carpeta_salida):
-            os.makedirs(carpeta_salida)
-            logging.info(f"Creada carpeta de salida: {carpeta_salida}")
-        
-        # Contador de imágenes procesadas y errores
-        imagenes_procesadas = 0
-        errores = 0
-        
-        # Lista de carpetas a excluir (todos los marketplaces)
-        carpetas_excluir = set(c.nombre for c in CONFIGURACIONES.values())
-        
-        # Recorrer todas las subcarpetas y archivos
-        for raiz, dirs, archivos in os.walk(carpeta_entrada):
-            # Excluir las carpetas de marketplace
-            for marketplace in carpetas_excluir:
-                if marketplace in dirs:
-                    dirs.remove(marketplace)
-            
-            # Verificar que la ruta no está dentro de ninguna carpeta de marketplace
-            ruta_relativa = os.path.relpath(raiz, carpeta_entrada)
-            if any(marketplace in ruta_relativa.split(os.sep) for marketplace in carpetas_excluir):
-                continue
-            
-            for archivo in archivos:
-                if archivo.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                    # Construir rutas
-                    ruta_completa = os.path.join(raiz, archivo)
-                    carpeta_destino = os.path.join(carpeta_salida, ruta_relativa)
-                    
-                    if not os.path.exists(carpeta_destino):
-                        os.makedirs(carpeta_destino)
-                    
-                    try:
-                        logging.info(f"Procesando imagen: {ruta_completa}")
-                        imagen_procesada = ajustar_imagen(
-                            ruta_completa, 
-                            config,
-                            aplicar_margen=ruta_completa in imagenes_con_margen
-                        )
-                        
-                        # Definir nombre de archivo de salida
-                        nombre_archivo = os.path.splitext(archivo)[0]
-                        extension = ".jpg" if config.formato == "JPEG" else ".png"
-                        ruta_salida = os.path.join(carpeta_destino, f"procesado_{nombre_archivo}{extension}")
-                        
-                        # Guardar imagen con optimización
-                        guardar_imagen_optimizada(imagen_procesada, ruta_salida, config)
-                        
-                        logging.info(f"Imagen guardada en: {ruta_salida}")
-                        imagenes_procesadas += 1
-                        
-                    except Exception as e:
-                        logging.error(f"Error procesando {ruta_completa}: {str(e)}")
-                        errores += 1
-        
-        # Resumen para este marketplace
-        logging.info(f"\nResumen del procesamiento para {config.nombre}:")
-        logging.info(f"Total de imágenes procesadas: {imagenes_procesadas}")
-        logging.info(f"Total de errores: {errores}")
-
-def procesar_carpeta(carpeta_entrada):
-    # Seleccionar marketplace
-    config = seleccionar_marketplace()
-    if not config:
-        logging.error("No se seleccionó ningún marketplace. Saliendo...")
-        return
-    
-    # Obtener selección de imágenes que necesitan margen
-    imagenes_con_margen = mostrar_selector_imagenes(carpeta_entrada)
-    
-    if config == "TODOS":
-        # Procesar para todos los marketplaces
-        procesar_todos_marketplaces(carpeta_entrada, imagenes_con_margen)
     else:
-        # Procesar para un marketplace específico
-        # Crear carpeta del marketplace dentro de la carpeta de entrada
-        carpeta_salida = os.path.join(carpeta_entrada, config.nombre)
-        if not os.path.exists(carpeta_salida):
-            os.makedirs(carpeta_salida)
-            logging.info(f"Creada carpeta de salida: {carpeta_salida}")
-        
-        # Contador de imágenes procesadas y errores
-        imagenes_procesadas = 0
-        errores = 0
-        
-        logging.info(f"Iniciando procesamiento de imágenes para {config.nombre}")
-        
-        # Lista de carpetas a excluir (todos los marketplaces)
-        carpetas_excluir = set(c.nombre for c in CONFIGURACIONES.values())
-        
-        # Recorrer todas las subcarpetas y archivos
-        for raiz, dirs, archivos in os.walk(carpeta_entrada):
-            # Excluir las carpetas de marketplace
-            for marketplace in carpetas_excluir:
-                if marketplace in dirs:
-                    dirs.remove(marketplace)
-            
-            # Verificar que la ruta no está dentro de ninguna carpeta de marketplace
-            ruta_relativa = os.path.relpath(raiz, carpeta_entrada)
-            if any(marketplace in ruta_relativa.split(os.sep) for marketplace in carpetas_excluir):
-                continue
-            
-            for archivo in archivos:
-                if archivo.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                    # Construir rutas
-                    ruta_completa = os.path.join(raiz, archivo)
-                    carpeta_destino = os.path.join(carpeta_salida, ruta_relativa)
-                    
-                    if not os.path.exists(carpeta_destino):
-                        os.makedirs(carpeta_destino)
-                    
-                    try:
-                        logging.info(f"Procesando imagen: {ruta_completa}")
-                        imagen_procesada = ajustar_imagen(
-                            ruta_completa, 
-                            config,
-                            aplicar_margen=ruta_completa in imagenes_con_margen
-                        )
-                        
-                        # Definir nombre de archivo de salida
-                        nombre_archivo = os.path.splitext(archivo)[0]
-                        extension = ".jpg" if config.formato == "JPEG" else ".png"
-                        ruta_salida = os.path.join(carpeta_destino, f"procesado_{nombre_archivo}{extension}")
-                        
-                        # Guardar imagen con optimización
-                        guardar_imagen_optimizada(imagen_procesada, ruta_salida, config)
-                        
-                        logging.info(f"Imagen guardada en: {ruta_salida}")
-                        imagenes_procesadas += 1
-                        
-                    except Exception as e:
-                        logging.error(f"Error procesando {ruta_completa}: {str(e)}")
-                        errores += 1
-        
-        # Resumen final
-        logging.info(f"\nResumen del procesamiento para {config.nombre}:")
-        logging.info(f"Total de imágenes procesadas: {imagenes_procesadas}")
-        logging.info(f"Total de errores: {errores}")
+        img.save(ruta_salida, format="PNG")
 
+# ----------------------------
+# Procesar carpeta
+# ----------------------------
+def procesar_carpeta(carpeta):
+    cfg = seleccionar_marketplace()
+    if not cfg:
+        logging.error("No se seleccionó marketplace. Saliendo…")
+        return
+    imgs_margin = mostrar_selector_imagenes(carpeta)
+
+    def _proc(c):
+        out_root = os.path.join(carpeta, c.nombre)
+        os.makedirs(out_root, exist_ok=True)
+        cont = errs = 0
+        excl = set(x.nombre for x in CONFIGURACIONES.values())
+        for raiz, dirs, archivos in os.walk(carpeta):
+            for mkt in excl:
+                if mkt in dirs:
+                    dirs.remove(mkt)
+            rel = os.path.relpath(raiz, carpeta)
+            if any(m in rel.split(os.sep) for m in excl):
+                continue
+            for f in archivos:
+                if f.lower().endswith(('.png','.jpg','.jpeg','.webp')):
+                    src = os.path.join(raiz, f)
+                    dst_dir = os.path.join(out_root, rel)
+                    os.makedirs(dst_dir, exist_ok=True)
+                    try:
+                        aplicar = (src in imgs_margin)
+                        img_p = ajustar_imagen(src, c, aplicar_margen=aplicar)
+                        name, _ = os.path.splitext(f)
+                        ext = '.jpg' if c.formato == "JPEG" else '.png'
+                        out = os.path.join(dst_dir, f"procesado_{name}{ext}")
+                        guardar_imagen_optimizada(img_p, out, c)
+                        cont += 1
+                    except Exception as e:
+                        logging.error(f"Error procesando {src}: {e}")
+                        errs += 1
+        logging.info(f"{c.nombre}: procesadas={cont}, errores={errs}")
+
+    if cfg == "TODOS":
+        for c in CONFIGURACIONES.values():
+            _proc(c)
+    else:
+        _proc(cfg)
+
+# ----------------------------
+# Main
+# ----------------------------
 if __name__ == "__main__":
-    # Configurar logging
     configurar_logging()
-    
     try:
-        # Seleccionar carpeta de entrada
-        logging.info("Seleccionando carpeta de entrada...")
-        CARPETA_ENTRADA = seleccionar_carpeta("Selecciona la carpeta con las imágenes a procesar")
-        
-        if not CARPETA_ENTRADA:
-            logging.error("No se seleccionó ninguna carpeta de entrada. Saliendo...")
+        logging.info("Seleccionando carpeta de entrada…")
+        carpeta = seleccionar_carpeta("Selecciona la carpeta con las imágenes")
+        if not carpeta:
+            logging.error("No se seleccionó carpeta. Saliendo.")
             exit()
-        
-        # Procesar las imágenes
-        procesar_carpeta(CARPETA_ENTRADA)
-        
-        logging.info("Procesamiento completado exitosamente")
-        
+        procesar_carpeta(carpeta)
+        logging.info("¡Procesamiento completado exitosamente!")
     except Exception as e:
-        logging.error(f"Error general en la aplicación: {str(e)}")
+        logging.error(f"Error general en la aplicación: {e}")

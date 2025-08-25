@@ -134,23 +134,23 @@ def select_pdf_and_convert():
     def process_weekend():
         file_paths = filedialog.askopenfilenames(title="Seleccionar archivos PDF (Viernes, Sábado y Domingo)", filetypes=[("PDF files", "*.pdf")])
         if len(file_paths) == 3:
-            process_files(file_paths, is_weekend=True, prefix="")
+            process_files(file_paths, is_weekend=True, prefix="", folder_label="Marcas")
         else:
             messagebox.showerror("Error", "Debe seleccionar tres archivos PDF (Viernes, Sábado y Domingo).")
 
     def process_weekend_ps():
         file_paths = filedialog.askopenfilenames(title="Seleccionar archivos PDF (Viernes, Sábado y Domingo)", filetypes=[("PDF files", "*.pdf")])
         if len(file_paths) == 3:
-            process_files(file_paths, is_weekend=True, prefix="PS ")
+            process_files(file_paths, is_weekend=True, prefix="PS ", folder_label="Pure And Simple")
         else:
             messagebox.showerror("Error", "Debe seleccionar tres archivos PDF (Viernes, Sábado y Domingo).")
 
-    def process_files(file_paths, is_weekend, prefix=""):
+    def process_files(file_paths, is_weekend, prefix="", folder_label="Marcas"):
         def run_processing():
             if is_weekend:
                 for file_path in file_paths:
                     day = get_day_from_filename(file_path)
-                    output_folder_name = f"{prefix}GUIAS SHEIN {datetime.now().strftime('%Y-%m-%d')} - {day} - IMAGENES"
+                    output_folder_name = f"{folder_label} - GUIAS SHEIN {datetime.now().strftime('%Y-%m-%d')} - {day} - IMAGENES"
                     output_folder_path = os.path.join(os.getcwd(), output_folder_name)
                     if not os.path.exists(output_folder_path):
                         os.makedirs(output_folder_path)
@@ -162,7 +162,7 @@ def select_pdf_and_convert():
             else:
                 file_path = file_paths[0]
                 day = get_day_from_filename(file_path)
-                output_folder_name = f"{prefix}GUIAS SHEIN {datetime.now().strftime('%Y-%m-%d')} - {day} - IMAGENES"
+                output_folder_name = f"{folder_label} - GUIAS SHEIN {datetime.now().strftime('%Y-%m-%d')} - {day} - IMAGENES"
                 output_folder_path = os.path.join(os.getcwd(), output_folder_name)
                 if not os.path.exists(output_folder_path):
                     os.makedirs(output_folder_path)
@@ -177,24 +177,35 @@ def select_pdf_and_convert():
     global root, pdf_info_text, progress_bar, status_label
     root = tk.Tk()
     root.title("Procesador de Pedidos GUIAS SHEIN")
-    root.geometry("600x400")
+    root.geometry("700x500")
+    root.configure(bg="#f0f4f8")
 
-    single_day_button = tk.Button(root, text="Seleccionar PDF para un solo día", command=process_single_day)
-    single_day_button.pack(pady=10)
+    style = ttk.Style()
+    style.theme_use('clam')
+    style.configure('TButton', font=('Segoe UI', 12, 'bold'), foreground='#fff', background='#0078d7', padding=10)
+    style.map('TButton', background=[('active', '#005a9e')])
+    style.configure('TLabel', font=('Segoe UI', 11), background='#f0f4f8')
+    style.configure('TProgressbar', thickness=20)
 
-    weekend_button = tk.Button(root, text="Seleccionar PDFs para el fin de semana", command=process_weekend)
-    weekend_button.pack(pady=10)
+    title_label = tk.Label(root, text="Procesador de Pedidos GUIAS SHEIN", font=("Segoe UI", 18, "bold"), bg="#f0f4f8", fg="#0078d7")
+    title_label.pack(pady=(20, 10))
 
-    weekend_ps_button = tk.Button(root, text="Seleccionar PDFs para el fin de semana Pure And Simple", command=process_weekend_ps)
-    weekend_ps_button.pack(pady=10)
+    single_day_button = ttk.Button(root, text="Seleccionar PDF para un solo día", command=process_single_day)
+    single_day_button.pack(pady=10, ipadx=10, ipady=5)
 
-    progress_bar = ttk.Progressbar(root, orient='horizontal', length=500, mode='determinate')
-    progress_bar.pack(pady=20)
+    weekend_button = ttk.Button(root, text="Seleccionar PDFs para el fin de semana (Marcas)", command=process_weekend)
+    weekend_button.pack(pady=10, ipadx=10, ipady=5)
 
-    status_label = tk.Label(root, text="Estado: Esperando selección de archivos")
+    weekend_ps_button = ttk.Button(root, text="Seleccionar PDFs para el fin de semana (Pure And Simple)", command=process_weekend_ps)
+    weekend_ps_button.pack(pady=10, ipadx=10, ipady=5)
+
+    progress_bar = ttk.Progressbar(root, orient='horizontal', length=600, mode='determinate', style='TProgressbar')
+    progress_bar.pack(pady=25)
+
+    status_label = ttk.Label(root, text="Estado: Esperando selección de archivos", style='TLabel')
     status_label.pack(pady=10)
 
-    pdf_info_text = tk.Text(root, height=10, width=70)
+    pdf_info_text = tk.Text(root, height=10, width=80, font=("Consolas", 10))
     pdf_info_text.pack(pady=10)
 
     root.mainloop()
