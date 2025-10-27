@@ -1,13 +1,16 @@
 import os
+import sys
 import fitz  # PyMuPDF
 from PIL import Image
 from docx import Document
 from docx.shared import Cm, Inches
 from docx.enum.table import WD_ROW_HEIGHT_RULE
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 from datetime import datetime
 import logging
+import platform
+import subprocess
 
 # Intentar importar docx2pdf para conversión Word->PDF
 try:
@@ -24,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --------------------------- UI ---------------------------------
-def ask_brand():
+def ask_brand(parent=None):
     """
     Selector:
       - Marcas y Licencias  (4 por hoja, sin rotar)
@@ -32,9 +35,9 @@ def ask_brand():
       - TikTok              (2 por hoja, vertical; sin rotar; la segunda inicia a media hoja)
     """
     sel = {}
-    sel_root = tk.Toplevel()
+    sel_root = tk.Toplevel(parent) if parent else tk.Toplevel()
     sel_root.title("Seleccione Marca / Modo de salida")
-    sel_root.geometry("320x180")
+    sel_root.geometry("340x190")
     sel_var = tk.StringVar(value="Marcas y Licencias")
 
     tk.Label(sel_root, text="Seleccione MARCA / MODO:").pack(pady=(10, 6))
@@ -54,43 +57,81 @@ def ask_brand():
     sel_root.wait_window()
     return sel.get('brand', '')
 
+# ---------------------- Helpers de SO ----------------------------
+def open_folder(path: str):
+    """Abre la carpeta en el explorador según el SO."""
+    try:
+        if platform.system() == "Windows":
+            os.startfile(path)  # type: ignore[attr-defined]
+        elif platform.system() == "Darwin":  # macOS
+            subprocess.Popen(["open", path])
+        else:  # Linux
+            subprocess.Popen(["xdg-open", path])
+    except Exception as e:
+        logger.warning(f"No se pudo abrir la carpeta automáticamente: {e}")
+
+def remove_even_pages(pdf_in: str, pdf_out: str):
+    """Genera un PDF con solo páginas impares (elimina pares)."""
+    try:
+        src = fitz.open(pdf_in)
+    except Exception as e:
+        logger.error(f"No se pudo abrir el PDF para filtrar impares: {e}")
+        return False
+
+    dst = fitz.open()
+    for i in range(src.page_count):
+        # i es 0-based; página humana = i+1. Mantener solo impares.
+        if (i + 1) % 2 == 1:
+            dst.insert_pdf(src, from_page=i, to_page=i)
+    try:
+        dst.save(pdf_out)
+        logger.info(f"✅ PDF (láser solo impares) guardado en: {pdf_out}")
+        return True
+    except Exception as e:
+        logger.error(f"No se pudo guardar el PDF filtrado: {e}")
+        return False
+    finally:
+        dst.close()
+        src.close()
+
 # --------------------------- LÓGICA ------------------------------
 def split_and_compile(root):
     logger.info("▶ Iniciando split_and_compile()")
 
     # 1) Elige MARCA/MODO
-    brand = ask_brand()
+    brand = ask_brand(root)
     if not brand:
         logger.error("No se seleccionó ninguna marca. Abortando.")
-        root.quit()
-        return
+        return False
+
     logger.info(f"Marca / Modo seleccionado: {brand}")
 
     # 2) Selecciona PDF
     pdf_path = filedialog.askopenfilename(
+        parent=root,
         title="Seleccionar archivo PDF",
         filetypes=[("PDF files", "*.pdf")]
     )
     if not pdf_path:
         logger.error("No se seleccionó ningún archivo PDF. Abortando.")
-        root.quit()
-        return
+        return False
 
-    # 3) Carpeta de salida
+    # 3) Carpeta de salida (por día + subcarpeta por ejecución)
     today = datetime.now().strftime("%d-%m-%Y")
-    folder_name = f"Marcas -Shein - {today}"
+    timestamp = datetime.now().strftime("%H%M%S")
     desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-    output_folder = os.path.join(desktop, folder_name)
-    os.makedirs(output_folder, exist_ok=True)
-    logger.info(f"Carpeta de salida: {output_folder}")
+    base_folder = os.path.join(desktop, f"Marcas -Shein - {today}")
+    run_folder = os.path.join(base_folder, f"{brand} - {timestamp}")
+    os.makedirs(run_folder, exist_ok=True)
+    logger.info(f"Carpeta base: {base_folder}")
+    logger.info(f"Carpeta de esta ejecución: {run_folder}")
 
     # 4) Abre PDF original
     try:
         doc = fitz.open(pdf_path)
     except Exception as e:
         logger.error(f"❌ No se pudo abrir el PDF: {e}")
-        root.quit()
-        return
+        return False
 
     total = doc.page_count
     logger.info(f"Documento original: {total} páginas")
@@ -110,9 +151,12 @@ def split_and_compile(root):
         logger.info(f"Páginas impares extraídas: {odd_indices}")
 
     odd_name = f"{brand} Guias shein {today} - impresora termica.pdf"
-    odd_path = os.path.join(output_folder, odd_name)
-    odd_pdf.save(odd_path)
-    logger.info(f"✅ PDF TÉRMICO guardado en: {odd_path}")
+    odd_path = os.path.join(run_folder, odd_name)
+    try:
+        odd_pdf.save(odd_path)
+        logger.info(f"✅ PDF TÉRMICO guardado en: {odd_path}")
+    finally:
+        odd_pdf.close()
 
     # --- B) PARES → DOCX según modo ---
     even_indices = [i + 1 for i in range(total) if (i + 1) % 2 == 0]
@@ -146,7 +190,7 @@ def split_and_compile(root):
         section.top_margin = Cm(0.5)
         section.bottom_margin = Cm(0.5)
 
-    # Tomamos medidas útiles en CM para evitar floats sueltos
+    # Medidas útiles en cm
     section = doc_word.sections[0]
     usable_w_cm = section.page_width.cm - section.left_margin.cm - section.right_margin.cm
     usable_h_cm = section.page_height.cm - section.top_margin.cm - section.bottom_margin.cm
@@ -177,7 +221,7 @@ def split_and_compile(root):
                 for r in range(2):
                     row = table.rows[r]
                     row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
-                    row.height = Cm(half_h_cm)   # <-- ahora es Length, no float
+                    row.height = Cm(half_h_cm)
 
         # Posición dentro de la página
         pos = count % per_page
@@ -185,8 +229,8 @@ def split_and_compile(root):
         col_i = pos % cols
         cell = table.cell(row_i, col_i)
 
-        # Insertar imagen a casi todo el ancho (sin rotar)
-        temp_png = os.path.join(output_folder, f"even_{idx}.png")
+        # Guardar PNG temporal dentro de la subcarpeta de ejecución
+        temp_png = os.path.join(run_folder, f"even_{idx}.png")
         img.save(temp_png, quality=100)
         run = cell.paragraphs[0].add_run()
         run.add_picture(temp_png, width=picture_width)
@@ -199,27 +243,66 @@ def split_and_compile(root):
 
     # Guardar DOCX
     docx_name = f"{brand} Guias shein {today} - {out_suffix}.docx"
-    docx_path = os.path.join(output_folder, docx_name)
+    docx_path = os.path.join(run_folder, docx_name)
     doc_word.save(docx_path)
     logger.info(f"✅ DOCX guardado en: {docx_path}")
 
     # 5) Convertir DOCX → PDF (si disponible)
+    produced_pdf_path = None
     if convert:
         pdf_name = f"{brand} Guias shein {today} - {out_suffix}.pdf"
-        pdf_path = os.path.join(output_folder, pdf_name)
-        convert(docx_path, pdf_path)
-        logger.info(f"✅ PDF ({out_suffix}) guardado en: {pdf_path}")
+        produced_pdf_path = os.path.join(run_folder, pdf_name)
+        try:
+            convert(docx_path, produced_pdf_path)
+            logger.info(f"✅ PDF ({out_suffix}) guardado en: {produced_pdf_path}")
+        except Exception as e:
+            logger.error(f"Error al convertir DOCX→PDF: {e}")
+            produced_pdf_path = None
     else:
         logger.error("docx2pdf no disponible; se omitió conversión a PDF de pares.")
 
+    # 6) Paso extra para TikTok: crear versión LÁSER SOLO IMPARES
+    if brand == "TikTok" and produced_pdf_path:
+        laser_odds_pdf = os.path.join(
+            run_folder, f"{brand} Guias shein {today} - impresora laser (solo impares).pdf"
+        )
+        remove_even_pages(produced_pdf_path, laser_odds_pdf)
+
+    # Cerrar PDF fuente
+    doc.close()
+
+    # Abrir carpeta de la ejecución
+    open_folder(run_folder)
+
     logger.info("▶ Proceso completado exitosamente.")
-    root.quit()
+    return True
 
 def main():
     root = tk.Tk()
-    root.iconify()  # mantiene vivo el loop sin mostrar la ventana principal
-    root.after(0, split_and_compile, root)
-    root.mainloop()
+    root.withdraw()  # no mostrar ventana base
+    try:
+        while True:
+            ok = split_and_compile(root)
+            if not ok:
+                # Si fue cancelación o error, preguntar si reintentar
+                retry = messagebox.askyesno(
+                    "¿Intentar de nuevo?",
+                    "No se completó el proceso. ¿Deseas intentar con otro PDF?"
+                )
+                if not retry:
+                    break
+            else:
+                again = messagebox.askyesno(
+                    "Proceso finalizado",
+                    "Se terminó el procesamiento.\n\n¿Deseas procesar otro PDF?"
+                )
+                if not again:
+                    break
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     main()
