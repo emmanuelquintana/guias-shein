@@ -3,288 +3,368 @@ import fitz  # PyMuPDF
 from PIL import Image
 from docx import Document
 from docx.shared import Cm, Inches
+import customtkinter as ctk
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from datetime import datetime
 import logging
+import threading
+import sys
 
 # Intentar importar docx2pdf para conversión Word->PDF
 try:
     from docx2pdf import convert
 except ImportError:
     convert = None
-    logging.warning("docx2pdf no está instalado. La conversión a PDF se omitirá.")
+    print("docx2pdf no está instalado. La conversión a PDF se omitirá.")
 
-# Configurar logging
+# Configurar logging básico (para consola/archivo si se necesita)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-def ask_brand():
-    sel = {}
-    sel_root = tk.Toplevel()
-    sel_root.title("Selecciona la Marca")
-    sel_root.geometry("340x180")
-    sel_root.configure(bg="#f5f5f5")
+# Configuración de CustomTkinter
+ctk.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
+ctk.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
 
-    sel_var = tk.StringVar(value="Marcas y Licencias")
+class TextHandler(logging.Handler):
+    """Handler para redirigir logs a un widget de texto."""
+    def __init__(self, text_widget):
+        super().__init__()
+        self.text_widget = text_widget
 
-    title = tk.Label(sel_root, text="¿Qué marca vas a procesar?", font=("Segoe UI", 13, "bold"), bg="#f5f5f5", fg="#333")
-    title.pack(pady=(18, 8))
+    def emit(self, record):
+        msg = self.format(record)
+        def append():
+            self.text_widget.configure(state="normal")
+            self.text_widget.insert("end", msg + "\n")
+            self.text_widget.see("end")
+            self.text_widget.configure(state="disabled")
+        self.text_widget.after(0, append)
 
-    frame = tk.Frame(sel_root, bg="#f5f5f5")
-    frame.pack(pady=(0, 10))
+class SheinSplitApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
 
-    rb1 = tk.Radiobutton(frame, text="Marcas y Licencias", variable=sel_var, value="Marcas y Licencias",
-                         font=("Segoe UI", 11), bg="#f5f5f5", fg="#222", selectcolor="#e0e0e0", anchor="w", width=20)
-    rb1.grid(row=0, column=0, sticky="w", padx=18, pady=2)
-    rb2 = tk.Radiobutton(frame, text="Pure and Simple", variable=sel_var, value="Pure and Simple",
-                         font=("Segoe UI", 11), bg="#f5f5f5", fg="#222", selectcolor="#e0e0e0", anchor="w", width=20)
-    rb2.grid(row=1, column=0, sticky="w", padx=18, pady=2)
+        # Configuración de la ventana principal
+        self.title("Procesador Guías Shein")
+        self.geometry("800x650")
 
-    def on_submit():
-        sel['brand'] = sel_var.get()
-        sel_root.destroy()
+        # Variables de estado
+        self.brand_var = ctk.StringVar(value="Marcas y Licencias")
+        self.is_weekend_var = ctk.BooleanVar(value=False)
+        self.files_selected = {}
+        self.output_folder = None
 
-    btn = tk.Button(sel_root, text="Continuar", command=on_submit, font=("Segoe UI", 11, "bold"), bg="#4caf50", fg="white", relief="flat", width=14)
-    btn.pack(pady=(8, 12))
+        # Grid layout 
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
 
-    sel_root.update_idletasks()
-    sel_root.attributes('-topmost', True)
-    sel_root.focus_force()
-    sel_root.grab_set()
-    sel_root.wait_window()
+        # Crear paneles
+        self.create_sidebar()
+        self.create_main_area()
+        self.create_log_area()
 
-    return sel.get('brand', '')
+        # Configurar logging a la UI
+        text_handler = TextHandler(self.log_textbox)
+        text_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        logger.addHandler(text_handler)
 
-def ask_weekend():
-    root = tk.Toplevel()
-    root.title("¿Fin de semana?")
-    root.geometry("370x160")
-    root.configure(bg="#f5f5f5")
-    msg = tk.Label(root, text="¿Es para el fin de semana?\n\nSi eliges Sí, deberás seleccionar 3 PDFs:\nViernes, Sábado y Domingo.",
-                   font=("Segoe UI", 11), bg="#f5f5f5", fg="#333", justify="center")
-    msg.pack(pady=(18, 10))
+    def create_sidebar(self):
+        self.sidebar_frame = ctk.CTkFrame(self, width=200, corner_radius=0)
+        self.sidebar_frame.grid(row=0, column=0, rowspan=4, sticky="nsew")
+        self.sidebar_frame.grid_rowconfigure(4, weight=1)
 
-    result = {'val': False}
-    def yes():
-        result['val'] = True
-        root.destroy()
-    def no():
-        result['val'] = False
-        root.destroy()
+        self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="SheinTools", font=ctk.CTkFont(size=20, weight="bold"))
+        self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
 
-    btn_frame = tk.Frame(root, bg="#f5f5f5")
-    btn_frame.pack(pady=(0, 10))
-    tk.Button(btn_frame, text="Sí", command=yes, font=("Segoe UI", 11, "bold"), bg="#2196f3", fg="white", width=8, relief="flat").pack(side="left", padx=18)
-    tk.Button(btn_frame, text="No", command=no, font=("Segoe UI", 11, "bold"), bg="#e53935", fg="white", width=8, relief="flat").pack(side="left", padx=18)
+        self.brand_label = ctk.CTkLabel(self.sidebar_frame, text="Marca:", anchor="w")
+        self.brand_label.grid(row=1, column=0, padx=20, pady=(10, 0))
 
-    root.update_idletasks()
-    root.attributes('-topmost', True)
-    root.focus_force()
-    root.grab_set()
-    root.wait_window()
-    return result['val']
+        self.brand_option = ctk.CTkSegmentedButton(self.sidebar_frame, values=["Marcas y Licencias", "Pure and Simple"],
+                                                   variable=self.brand_var)
+        self.brand_option.grid(row=2, column=0, padx=20, pady=(5, 10))
+        
+        self.weekend_switch = ctk.CTkSwitch(self.sidebar_frame, text="Modo Fin de Semana", 
+                                            variable=self.is_weekend_var, command=self.update_file_buttons)
+        self.weekend_switch.grid(row=3, column=0, padx=20, pady=10)
 
-def ask_pdf_for_day(day_label=None):
-    title = f"Seleccionar archivo PDF de {day_label}" if day_label else "Seleccionar archivo PDF"
-    return filedialog.askopenfilename(
-        title=title,
-        filetypes=[("PDF files", "*.pdf")]
-    )
+        # Botón de Procesar
+        self.process_btn = ctk.CTkButton(self.sidebar_frame, text="PROCESAR", command=self.start_thread,
+                                         fg_color="#2CC985", hover_color="#229A65")
+        self.process_btn.grid(row=5, column=0, padx=20, pady=20)
 
-def ensure_output_folder(brand):
-    today = datetime.now().strftime("%d-%m-%Y")
-    safe_brand = brand.replace(" ", "_")
-    folder_name = f"{safe_brand} -Shein - {today}"
-    desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-    output_folder = os.path.join(desktop, folder_name)
-    os.makedirs(output_folder, exist_ok=True)
-    return output_folder, today
+        # Botón de Abrir Carpeta
+        self.open_folder_btn = ctk.CTkButton(self.sidebar_frame, text="Abrir Carpeta", command=self.open_output_folder,
+                                             fg_color="#3B8ED0", hover_color="#36719F", state="disabled")
+        self.open_folder_btn.grid(row=6, column=0, padx=20, pady=(0, 20))
 
-def process_pdf_for_day(pdf_path, brand, output_folder, today, day_label=None):
-    """
-    Procesa un PDF con la lógica original. Si day_label está presente,
-    lo agrega a los nombres de los archivos de salida.
-    """
-    try:
-        doc = fitz.open(pdf_path)
-    except Exception as e:
-        logger.error(f"❌ No se pudo abrir el PDF ({day_label or 'Único'}): {e}")
-        return
+    def create_main_area(self):
+        self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_frame.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
+        self.main_frame.grid_columnconfigure(0, weight=1)
 
-    total = doc.page_count
-    logger.info(f"[{day_label or 'Único'}] Documento original: {total} páginas")
+        self.files_label = ctk.CTkLabel(self.main_frame, text="Selección de Archivos", font=ctk.CTkFont(size=16, weight="bold"))
+        self.files_label.grid(row=0, column=0, sticky="w", pady=(0, 10))
 
-    # --- A) IMPARES → PDF térmico ---
-    odd_pdf = fitz.open()
-    odd_indices = []
-    for i in range(total):
-        if (i + 1) % 2 == 1:
-            odd_pdf.insert_pdf(doc, from_page=i, to_page=i)
-            odd_indices.append(i + 1)
+        self.file_buttons_frame = ctk.CTkFrame(self.main_frame)
+        self.file_buttons_frame.grid(row=1, column=0, sticky="ew")
+        self.file_buttons_frame.grid_columnconfigure(0, weight=1) # Label
+        self.file_buttons_frame.grid_columnconfigure(1, weight=0) # Button
 
-    exp_odds = (total + 1) // 2
-    if len(odd_indices) != exp_odds:
-        logger.warning(f"[{day_label or 'Único'}] Mismatch impares: esperadas={exp_odds}, extraídas={len(odd_indices)} ({odd_indices})")
-    else:
-        logger.info(f"[{day_label or 'Único'}] Páginas impares extraídas: {odd_indices}")
+        self.update_file_buttons()
 
-    day_chunk = f" - {day_label}" if day_label else ""
+    def create_log_area(self):
+        # Área de logs en la parte inferior o integrada
+        self.log_textbox = ctk.CTkTextbox(self.main_frame, width=400, height=300)
+        self.log_textbox.grid(row=2, column=0, padx=0, pady=(20, 0), sticky="nsew")
+        self.log_textbox.configure(state="disabled")
 
-    odd_name = f"{brand} Guias shein {today}{day_chunk} - impresora termica.pdf"
-    odd_path = os.path.join(output_folder, odd_name)
-    odd_pdf.save(odd_path)
-    odd_pdf.close()
-    logger.info(f"✅ [{day_label or 'Único'}] PDF TÉRMICO guardado en: {odd_path}")
+        # Configurar expansión del log
+        self.main_frame.grid_rowconfigure(2, weight=1)
 
-    # --- B) PARES → DOCX (4 por hoja) + PDF láser ---
-    even_indices = [i + 1 for i in range(total) if (i + 1) % 2 == 0]
-    logger.info(f"[{day_label or 'Único'}] Índices pares que deberían procesarse: {even_indices}")
+    def update_file_buttons(self):
+        # Limpiar frame anterior
+        for widget in self.file_buttons_frame.winfo_children():
+            widget.destroy()
 
-    images = []
-    skipped = []
-    scale = 2  # factor de zoom para mayor resolución
-    for idx in even_indices:
-        page = doc.load_page(idx - 1)
-        pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        if img.getbbox() is None:
-            skipped.append(idx)
-            continue
-        images.append((idx, img))
+        self.files_selected = {} # Reiniciar selección al cambiar modo
+        
+        # Diccionario de widgets para acceso posterior
+        self.path_labels = {}
 
-    if skipped:
-        logger.warning(f"[{day_label or 'Único'}] Páginas pares en blanco omitidas: {skipped}")
-    if len(images) != len(even_indices) - len(skipped):
-        logger.warning(
-            f"[{day_label or 'Único'}] Después de filtrar blancas: esperadas={len(even_indices)}, "
-            f"procesadas={len(images)}"
-        )
-    else:
-        logger.info(f"[{day_label or 'Único'}] Imágenes pares procesadas correctamente: {[i for i,_ in images]}")
+        if self.is_weekend_var.get():
+            days = ["Viernes", "Sabado", "Domingo"]
+            for i, day in enumerate(days):
+                lbl_title = ctk.CTkLabel(self.file_buttons_frame, text=f"{day}:", width=60, anchor="e")
+                lbl_title.grid(row=i, column=0, padx=10, pady=5, sticky="e")
+                
+                path_lbl = ctk.CTkEntry(self.file_buttons_frame, placeholder_text="No seleccionado", state="disabled")
+                path_lbl.grid(row=i, column=1, padx=10, pady=5, sticky="ew")
+                self.path_labels[day] = path_lbl
+                
+                btn = ctk.CTkButton(self.file_buttons_frame, text="Seleccionar", width=100, 
+                                    command=lambda d=day: self.select_file(d))
+                btn.grid(row=i, column=2, padx=10, pady=5)
+                
+            self.file_buttons_frame.grid_columnconfigure(1, weight=1)
+        else:
+            lbl_title = ctk.CTkLabel(self.file_buttons_frame, text="Archivo PDF:", width=80, anchor="e")
+            lbl_title.grid(row=0, column=0, padx=10, pady=5, sticky="e")
 
-    # Crear DOCX tamaño Carta
-    doc_word = Document()
-    for section in doc_word.sections:
-        section.page_width = Inches(8.5)
-        section.page_height = Inches(11)
-        section.left_margin = Cm(0.5)
-        section.right_margin = Cm(0.5)
-        section.top_margin = Cm(0.5)
-        section.bottom_margin = Cm(0.5)
+            path_lbl = ctk.CTkEntry(self.file_buttons_frame, placeholder_text="No seleccionado", state="disabled")
+            path_lbl.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
+            self.path_labels["Single"] = path_lbl
 
-    # Incrustar imágenes 4 por hoja (ligeramente más pequeñas)
-    desired_w = Cm(7.0)
-    desired_h = Cm(12.0)
-    count = 0
-    table = None
+            btn = ctk.CTkButton(self.file_buttons_frame, text="Seleccionar", width=100,
+                                command=lambda: self.select_file("Single"))
+            btn.grid(row=0, column=2, padx=10, pady=5)
+            
+            self.file_buttons_frame.grid_columnconfigure(1, weight=1)
 
-    for idx, img in images:
-        if count % 4 == 0:
-            table = doc_word.add_table(rows=2, cols=2)
-            table.autofit = False
-            table.allow_autofit = False
+    def select_file(self, key):
+        file_path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
+        if file_path:
+            self.files_selected[key] = file_path
+            # Actualizar visualmente (necesitamos habilitar temporalmente el Entry)
+            entry = self.path_labels[key]
+            entry.configure(state="normal")
+            entry.delete(0, "end")
+            entry.insert(0, os.path.basename(file_path))
+            entry.configure(state="disabled")
 
-        row = (count % 4) // 2
-        col = (count % 4) % 2
-        cell = table.cell(row, col)
+    def open_output_folder(self):
+        if self.output_folder and os.path.exists(self.output_folder):
+            os.startfile(self.output_folder)
 
-        # Temp PNG en la carpeta del día (o principal si no hay día)
-        temp_png = os.path.join(
-            output_folder,
-            f"{(day_label or 'unico').lower()}_even_{idx}.png"
-        )
-        img.save(temp_png, quality=100)
-        cell.paragraphs[0].add_run().add_picture(
-            temp_png,
-            width=desired_w,
-            height=desired_h
-        )
-        logger.info(f"[{day_label or 'Único'}] Insertada página par {idx} en tabla posición ({row},{col})")
-        count += 1
-
-        if count % 4 == 0:
-            doc_word.add_page_break()
-
-    # Guardar DOCX
-    docx_name = f"{brand} Guias shein {today}{day_chunk} - impresora laser.docx"
-    docx_path = os.path.join(output_folder, docx_name)
-    doc_word.save(docx_path)
-    logger.info(f"✅ [{day_label or 'Único'}] DOCX guardado en: {docx_path}")
-
-    # Convertir DOCX → PDF láser
-    if convert:
-        try:
-            laser_name = f"{brand} Guias shein {today}{day_chunk} - impresora laser.pdf"
-            laser_path = os.path.join(output_folder, laser_name)
-            convert(docx_path, laser_path)
-            logger.info(f"✅ [{day_label or 'Único'}] PDF LÁSER guardado en: {laser_path}")
-        except Exception as e:
-            logger.error(f"❌ [{day_label or 'Único'}] Error al convertir DOCX a PDF: {e}")
-    else:
-        logger.error(f"[{day_label or 'Único'}] docx2pdf no disponible; se omitió conversión a PDF láser.")
-
-    doc.close()
-
-def split_and_compile(root):
-    logger.info("▶ Iniciando split_and_compile()")
-
-    # 1) Elige MARCA
-    brand = ask_brand()
-    if not brand:
-        logger.error("No se seleccionó ninguna marca. Abortando.")
-        root.quit()
-        return
-    logger.info(f"Marca seleccionada: {brand}")
-
-    # 2) ¿Es para fin de semana?
-    weekend = ask_weekend()
-
-    # 3) Prepara carpeta de salida (una sola para todo el proceso)
-    output_folder, today = ensure_output_folder(brand)
-    logger.info(f"Carpeta de salida: {output_folder}")
-
-    if weekend:
-        # Pedimos 3 PDFs: Viernes, Sabado y Domingo
-        days = ["Viernes", "Sabado", "Domingo"]
-        paths = {}
-        for d in days:
-            p = ask_pdf_for_day(d)
-            if not p:
-                logger.error(f"No se seleccionó PDF para {d}. Abortando.")
-                root.quit()
-                return
-            paths[d] = p
-
-        # Crear subcarpetas por día y procesar
-        for d in days:
-            day_dir = os.path.join(output_folder, d)
-            os.makedirs(day_dir, exist_ok=True)
-            logger.info(f"▶ Procesando {d} en carpeta: {day_dir}")
-            process_pdf_for_day(paths[d], brand, day_dir, today, day_label=d)
-
-        logger.info("▶ Proceso de fin de semana completado exitosamente.")
-    else:
-        # Flujo normal: un solo PDF en la carpeta principal
-        pdf_path = ask_pdf_for_day()
-        if not pdf_path:
-            logger.error("No se seleccionó ningún archivo PDF. Abortando.")
-            root.quit()
+    def start_thread(self):
+        # Validaciones
+        brand = self.brand_var.get()
+        if not brand:
+            messagebox.showerror("Error", "Selecciona una marca.")
             return
 
-        process_pdf_for_day(pdf_path, brand, output_folder, today, day_label=None)
-        logger.info("▶ Proceso simple completado exitosamente.")
+        weekend = self.is_weekend_var.get()
+        if weekend:
+            if len(self.files_selected) < 3:
+                messagebox.showerror("Error", "Debes seleccionar los 3 archivos para fin de semana.")
+                return
+        else:
+            if "Single" not in self.files_selected:
+                messagebox.showerror("Error", "Debes seleccionar un archivo PDF.")
+                return
 
-    root.quit()
+        # Deshabilitar botón
+        self.process_btn.configure(state="disabled", text="Procesando...")
+        self.log_textbox.configure(state="normal")
+        self.log_textbox.delete("1.0", "end")
+        self.log_textbox.configure(state="disabled")
 
-def main():
-    root = tk.Tk()
-    root.iconify()  # mantiene vivo el loop sin mostrar la ventana principal
-    root.after(0, split_and_compile, root)
-    root.mainloop()
+        # Iniciar thread
+        t = threading.Thread(target=self.run_process, args=(brand, weekend, self.files_selected.copy()))
+        t.start()
+
+    def run_process(self, brand, weekend, files):
+        try:
+            logger.info(f"Iniciando proceso para: {brand}")
+            output_folder, today = self.ensure_output_folder(brand)
+            logger.info(f"Carpeta de salida: {output_folder}")
+            
+            # Guardar referencia y habilitar botón (thread-safe)
+            self.output_folder = output_folder
+            self.after(0, lambda: self.open_folder_btn.configure(state="normal"))
+
+            if weekend:
+                days = ["Viernes", "Sabado", "Domingo"]
+                for d in days:
+                    if d not in files:
+                        logger.error(f"Falta archivo para {d}")
+                        continue
+                    
+                    day_dir = os.path.join(output_folder, d)
+                    os.makedirs(day_dir, exist_ok=True)
+                    logger.info(f"--- Procesando {d} ---")
+                    self.process_pdf_for_day(files[d], brand, day_dir, today, day_label=d)
+            else:
+                logger.info("--- Procesando PDF único ---")
+                self.process_pdf_for_day(files["Single"], brand, output_folder, today, day_label=None)
+
+            logger.info("✅ PROCESO COMPLETADO EXITOSAMENTE")
+            messagebox.showinfo("Éxito", "Proceso completado correctamente.")
+
+        except Exception as e:
+            logger.error(f"❌ Error crítico: {e}")
+            messagebox.showerror("Error", f"Ocurrió un error: {e}")
+
+        finally:
+            self.process_btn.configure(state="normal", text="PROCESAR")
+
+    # --- LÓGICA DE NEGOCIO (Adaptada del script original) ---
+
+    def ensure_output_folder(self, brand):
+        today = datetime.now().strftime("%d-%m-%Y")
+        safe_brand = brand.replace(" ", "_")
+        folder_name = f"{safe_brand} -Shein - {today}"
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        output_folder = os.path.join(desktop, folder_name)
+        os.makedirs(output_folder, exist_ok=True)
+        return output_folder, today
+
+    def process_pdf_for_day(self, pdf_path, brand, output_folder, today, day_label=None):
+        try:
+            doc = fitz.open(pdf_path)
+        except Exception as e:
+            logger.error(f"No se pudo abrir el PDF ({day_label or 'Único'}): {e}")
+            return
+
+        total = doc.page_count
+        logger.info(f"Documento original: {total} páginas")
+
+        # --- A) IMPARES → PDF térmico ---
+        odd_pdf = fitz.open()
+        odd_indices = []
+        for i in range(total):
+            if (i + 1) % 2 == 1:
+                odd_pdf.insert_pdf(doc, from_page=i, to_page=i)
+                odd_indices.append(i + 1)
+
+        exp_odds = (total + 1) // 2
+        if len(odd_indices) != exp_odds:
+            logger.warning(f"Mismatch impares: esperadas={exp_odds}, extraídas={len(odd_indices)}")
+        
+        day_chunk = f" - {day_label}" if day_label else ""
+        odd_name = f"{brand} Guias shein {today}{day_chunk} - impresora termica.pdf"
+        odd_path = os.path.join(output_folder, odd_name)
+        odd_pdf.save(odd_path)
+        odd_pdf.close()
+        logger.info(f"PDF TÉRMICO guardado: {odd_name}")
+
+        # --- B) PARES → DOCX (4 por hoja) + PDF láser ---
+        even_indices = [i + 1 for i in range(total) if (i + 1) % 2 == 0]
+        
+        images = []
+        skipped = []
+        scale = 2  # factor de zoom
+        
+        # Procesamiento de imágenes (puede tardar, bueno reportar progreso si fuera más granular)
+        for idx in even_indices:
+            page = doc.load_page(idx - 1)
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            if img.getbbox() is None:
+                skipped.append(idx)
+                continue
+            images.append((idx, img))
+
+        if skipped:
+            logger.warning(f"Páginas en blanco omitidas: {skipped}")
+
+        # Crear DOCX
+        doc_word = Document()
+        for section in doc_word.sections:
+            section.page_width = Inches(8.5)
+            section.page_height = Inches(11)
+            section.left_margin = Cm(0.5)
+            section.right_margin = Cm(0.5)
+            section.top_margin = Cm(0.5)
+            section.bottom_margin = Cm(0.5)
+
+        desired_w = Cm(7.0)
+        desired_h = Cm(12.0)
+        count = 0
+        table = None
+
+        for idx, img in images:
+            if count % 4 == 0:
+                table = doc_word.add_table(rows=2, cols=2)
+                table.autofit = False
+                table.allow_autofit = False
+
+            row = (count % 4) // 2
+            col = (count % 4) % 2
+            cell = table.cell(row, col)
+
+            temp_png = os.path.join(output_folder, f"{(day_label or 'unico').lower()}_even_{idx}.png")
+            img.save(temp_png, quality=100)
+            
+            p = cell.paragraphs[0]
+            r = p.add_run()
+            r.add_picture(temp_png, width=desired_w, height=desired_h)
+            
+            count += 1
+            if count % 4 == 0:
+                doc_word.add_page_break()
+            
+            # Limpiar temp inmediatamente para no llenar disco? O al final?
+            # El script original no los borraba, los dejo por ahora o los borro?
+            # Mejor borrarlos para limpiar garbage.
+            try:
+                os.remove(temp_png)
+            except:
+                pass
+
+        docx_name = f"{brand} Guias shein {today}{day_chunk} - impresora laser.docx"
+        docx_path = os.path.join(output_folder, docx_name)
+        doc_word.save(docx_path)
+        logger.info(f"DOCX guardado: {docx_name}")
+
+        if convert:
+            try:
+                laser_name = f"{brand} Guias shein {today}{day_chunk} - impresora laser.pdf"
+                laser_path = os.path.join(output_folder, laser_name)
+                convert(docx_path, laser_path)
+                logger.info(f"PDF LÁSER generado: {laser_name}")
+            except Exception as e:
+                logger.error(f"Error conversión PDF: {e}")
+        else:
+            logger.warning("docx2pdf no disponible; omitiendo PDF láser")
+
+        doc.close()
+
 
 if __name__ == "__main__":
-    main()
+    app = SheinSplitApp()
+    app.mainloop()
+

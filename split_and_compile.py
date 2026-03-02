@@ -350,7 +350,7 @@ class App(ctk.CTk):
             self.main_container, 
             corner_radius=10, 
             fg_color="#000000",
-            text_color="#00ff00",
+            text_color="#e0e0e0", # Neutral text color (light gray)
             font=("Consolas", 11),
             state="disabled",
             border_width=1,
@@ -358,6 +358,13 @@ class App(ctk.CTk):
         )
         self.log_box.grid(row=6, column=0, sticky="nsew", padx=20, pady=(0, 20))
         
+        # Configure Tags for Colors
+        self.log_box.tag_config("success", foreground="#a6e3a1") # Soft Green
+        self.log_box.tag_config("error", foreground="#f38ba8")   # Red
+        self.log_box.tag_config("warning", foreground="#f9e2af") # Yellow
+        self.log_box.tag_config("header", foreground="#89b4fa")  # Blue/Cyan
+        self.log_box.tag_config("normal", foreground="#e0e0e0")  # Default
+
         # 4. Open Folder Button (Hidden initially)
         self.btn_open_folder = ctk.CTkButton(
             self.main_container,
@@ -419,7 +426,19 @@ class App(ctk.CTk):
 
     def log(self, msg):
         self.log_box.configure(state="normal")
-        self.log_box.insert("end", msg + "\n")
+        
+        # Determine tag based on content
+        tag = "normal"
+        if "❌" in msg or "Error" in msg or "Falló" in msg:
+            tag = "error"
+        elif "✅" in msg or "guardado" in msg or "generado" in msg:
+            tag = "success"
+        elif "⚠️" in msg:
+            tag = "warning"
+        elif "▶" in msg or "Iniciando" in msg:
+            tag = "header"
+            
+        self.log_box.insert("end", msg + "\n", tag)
         self.log_box.see("end")
         self.log_box.configure(state="disabled")
 
