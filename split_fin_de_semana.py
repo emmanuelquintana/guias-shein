@@ -55,6 +55,7 @@ class SheinSplitApp(ctk.CTk):
         # Variables de estado
         self.brand_var = ctk.StringVar(value="Marcas y Licencias")
         self.is_weekend_var = ctk.BooleanVar(value=False)
+        self.is_puente_var = ctk.BooleanVar(value=False)
         self.files_selected = {}
         self.output_folder = None
 
@@ -88,8 +89,13 @@ class SheinSplitApp(ctk.CTk):
         self.brand_option.grid(row=2, column=0, padx=20, pady=(5, 10))
         
         self.weekend_switch = ctk.CTkSwitch(self.sidebar_frame, text="Modo Fin de Semana", 
-                                            variable=self.is_weekend_var, command=self.update_file_buttons)
+                                            variable=self.is_weekend_var, command=self.on_weekend_toggle)
         self.weekend_switch.grid(row=3, column=0, padx=20, pady=10)
+
+        self.puente_switch = ctk.CTkSwitch(self.sidebar_frame, text="Es Puente?", 
+                                           variable=self.is_puente_var, command=self.update_file_buttons)
+        self.puente_switch.grid(row=4, column=0, padx=20, pady=10)
+        self.puente_switch.configure(state="disabled")
 
         # Botón de Procesar
         self.process_btn = ctk.CTkButton(self.sidebar_frame, text="PROCESAR", command=self.start_thread,
@@ -137,6 +143,8 @@ class SheinSplitApp(ctk.CTk):
 
         if self.is_weekend_var.get():
             days = ["Viernes", "Sabado", "Domingo"]
+            if self.is_puente_var.get():
+                days.append("Lunes")
             for i, day in enumerate(days):
                 lbl_title = ctk.CTkLabel(self.file_buttons_frame, text=f"{day}:", width=60, anchor="e")
                 lbl_title.grid(row=i, column=0, padx=10, pady=5, sticky="e")
@@ -164,6 +172,14 @@ class SheinSplitApp(ctk.CTk):
             
             self.file_buttons_frame.grid_columnconfigure(1, weight=1)
 
+    def on_weekend_toggle(self):
+        if self.is_weekend_var.get():
+            self.puente_switch.configure(state="normal")
+        else:
+            self.is_puente_var.set(False)
+            self.puente_switch.configure(state="disabled")
+        self.update_file_buttons()
+
     def select_file(self, key):
         file_path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
         if file_path:
@@ -187,9 +203,11 @@ class SheinSplitApp(ctk.CTk):
             return
 
         weekend = self.is_weekend_var.get()
+        puente = self.is_puente_var.get()
         if weekend:
-            if len(self.files_selected) < 3:
-                messagebox.showerror("Error", "Debes seleccionar los 3 archivos para fin de semana.")
+            required_count = 4 if puente else 3
+            if len(self.files_selected) < required_count:
+                messagebox.showerror("Error", f"Debes seleccionar los {required_count} archivos para fin de semana.")
                 return
         else:
             if "Single" not in self.files_selected:
@@ -203,10 +221,10 @@ class SheinSplitApp(ctk.CTk):
         self.log_textbox.configure(state="disabled")
 
         # Iniciar thread
-        t = threading.Thread(target=self.run_process, args=(brand, weekend, self.files_selected.copy()))
+        t = threading.Thread(target=self.run_process, args=(brand, weekend, puente, self.files_selected.copy()))
         t.start()
 
-    def run_process(self, brand, weekend, files):
+    def run_process(self, brand, weekend, puente, files):
         try:
             logger.info(f"Iniciando proceso para: {brand}")
             output_folder, today = self.ensure_output_folder(brand)
@@ -218,6 +236,9 @@ class SheinSplitApp(ctk.CTk):
 
             if weekend:
                 days = ["Viernes", "Sabado", "Domingo"]
+                if puente:
+                    days.append("Lunes")
+                    
                 for d in days:
                     if d not in files:
                         logger.error(f"Falta archivo para {d}")
