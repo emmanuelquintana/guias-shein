@@ -303,63 +303,91 @@ def run_processing_pipeline(brand, mode, files_dict, logger, clear_shortcuts=Fal
 # ============================================================================
 # EXTRA SERVICE: MERCADO LIBRE - FIRST PAGE AS FULL-PAGE ROTATED IMAGE
 # ============================================================================
-def process_ml_first_page(file_paths, output_dir, logger):
+def process_ml_first_page(file_paths, output_dir, logger, imprimir_dir=None):
     """
-    Por cada PDF: toma la primera hoja, la renderiza como imagen,
-    la rota 90° y genera un nuevo PDF donde esa imagen ocupa toda la página.
+    Toma la primera hoja de cada PDF, recorta espacio en blanco,
+    orienta en portrait y combina todas en UN solo PDF de salida.
+    Copia el PDF final a imprimir_dir si se proporciona.
     """
     os.makedirs(output_dir, exist_ok=True)
+
+    if not file_paths:
+        return False, output_dir, 0
+
+    out_doc = fitz.open()
     total_processed = 0
 
     for path in file_paths:
         try:
             source_doc = fitz.open(path)
             if source_doc.page_count == 0:
-                logger.warning(f"⚠️ El archivo no tiene páginas: {os.path.basename(path)}")
+                logger.warning(f"⚠️ Sin páginas: {os.path.basename(path)}")
                 source_doc.close()
                 continue
 
             first_page = source_doc[0]
-            orig_rect = first_page.rect  # dimensiones originales en puntos
-
-            # Renderizar primera hoja a imagen de alta resolución
             scale = 3
             pix = first_page.get_pixmap(matrix=fitz.Matrix(scale, scale))
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            source_doc.close()
 
-            # Rotar 90° en sentido horario
-            img_rotated = img.rotate(-90, expand=True)
+            # Recortar espacio en blanco alrededor del contenido
+            img_gray = img.convert("L")
+            mask = img_gray.point(lambda p: 0 if p > 240 else 255)
+            bbox = mask.getbbox()
+            if bbox:
+                pad = 15
+                iw, ih = img.size
+                bbox = (
+                    max(0, bbox[0] - pad),
+                    max(0, bbox[1] - pad),
+                    min(iw, bbox[2] + pad),
+                    min(ih, bbox[3] + pad),
+                )
+                img = img.crop(bbox)
 
-            # La nueva página tiene dimensiones invertidas (landscape si original era portrait)
-            new_page_w = orig_rect.height
-            new_page_h = orig_rect.width
+            # Si el contenido es landscape, rotarlo para que quede portrait
+            if img.width > img.height:
+                img = img.rotate(-90, expand=True)
 
-            out_doc = fitz.open()
-            out_page = out_doc.new_page(width=new_page_w, height=new_page_h)
+            # Página portrait con las dimensiones exactas de la imagen
+            dpi = 72 * scale
+            page_w_pts = img.width * 72 / dpi
+            page_h_pts = img.height * 72 / dpi
 
-            # Insertar imagen rotada ocupando toda la página
+            out_page = out_doc.new_page(width=page_w_pts, height=page_h_pts)
+
             img_bytes = io.BytesIO()
-            img_rotated.save(img_bytes, format="PNG")
+            img.save(img_bytes, format="PNG")
             img_bytes.seek(0)
             out_page.insert_image(out_page.rect, stream=img_bytes.read())
 
-            source_doc.close()
-
-            basename = os.path.splitext(os.path.basename(path))[0]
-            output_name = f"{basename}_primera_hoja.pdf"
-            output_path = os.path.join(output_dir, output_name)
-            out_doc.save(output_path)
-            out_doc.close()
-
-            logger.info(f"✅ Primera hoja guardada: {output_name}")
+            logger.info(f"✅ Hoja agregada: {os.path.basename(path)}")
             total_processed += 1
         except Exception as e:
             logger.error(f"❌ Error procesando {os.path.basename(path)}: {e}")
 
     if total_processed == 0:
-        return False, output_dir, total_processed
+        out_doc.close()
+        return False, output_dir, 0
 
-    logger.info(f"✅ Servicio completado. {total_processed} archivo(s) procesado(s).")
+    # Un solo PDF combinado con timestamp
+    timestamp = datetime.now().strftime("%d-%m-%Y_%H%M%S")
+    output_name = f"ML_guias_{timestamp}.pdf"
+    output_path = os.path.join(output_dir, output_name)
+    out_doc.save(output_path)
+    out_doc.close()
+
+    # Copiar a carpeta imprimir (igual que las demás marcas)
+    if imprimir_dir:
+        try:
+            os.makedirs(imprimir_dir, exist_ok=True)
+            shutil.copy2(output_path, os.path.join(imprimir_dir, output_name))
+            logger.info(f"📋 Copiado a imprimir: {output_name}")
+        except Exception as e:
+            logger.warning(f"⚠️ No se pudo copiar a imprimir: {e}")
+
+    logger.info(f"✅ PDF combinado guardado: {output_name} ({total_processed} hoja(s)).")
     return True, output_dir, total_processed
 
 # ============================================================================
@@ -703,7 +731,8 @@ class UnifiedSheinApp(TkinterDnD_CTk):
     def run_rotation_service(self, files, logger):
         desktop = os.path.expanduser("~/Desktop")
         output_dir = os.path.join(desktop, "mercado-libre", "primeras_hojas_rotadas")
-        success, folder, processed = process_ml_first_page(files, output_dir, logger)
+        imprimir_dir = os.path.join(desktop, "guias-shein", "imprimir")
+        success, folder, processed = process_ml_first_page(files, output_dir, logger, imprimir_dir=imprimir_dir)
         self.result_folder = folder
         self.after(0, lambda: self.finish_rotation_service(success, processed))
 
