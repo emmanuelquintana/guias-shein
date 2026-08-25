@@ -391,6 +391,72 @@ def process_ml_first_page(file_paths, output_dir, logger, imprimir_dir=None):
     return True, output_dir, total_processed
 
 # ============================================================================
+# EXTRA SERVICE: AMAZON - UNIR GUIAS Y FACTURAS
+# ============================================================================
+def process_amazon_service(guias_paths, facturas_paths, logger, imprimir_dir=None, correo_dir=None, day_folder_root=None):
+    os.makedirs(day_folder_root, exist_ok=True)
+    timestamp = datetime.now().strftime("%d-%m-%Y_%H%M%S")
+    
+    total_guias = len(guias_paths)
+    total_facturas = len(facturas_paths)
+    
+    success_guias = False
+    success_facturas = False
+    
+    if total_guias > 0:
+        logger.info(f"⏳ Uniendo {total_guias} archivo(s) de Guías...")
+        guias_name = f"Amazon_Guias_{timestamp}.pdf"
+        guias_path = os.path.join(day_folder_root, guias_name)
+        out_doc = fitz.open()
+        for path in guias_paths:
+            try:
+                doc = fitz.open(path)
+                out_doc.insert_pdf(doc)
+                doc.close()
+            except Exception as e:
+                logger.error(f"❌ Error procesando {os.path.basename(path)}: {e}")
+        out_doc.save(guias_path)
+        out_doc.close()
+        
+        if imprimir_dir:
+            try:
+                os.makedirs(imprimir_dir, exist_ok=True)
+                shutil.copy2(guias_path, os.path.join(imprimir_dir, guias_name))
+                logger.info(f"📋 Guías copiadas a imprimir: {guias_name}")
+                success_guias = True
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudo copiar a imprimir: {e}")
+                
+    if total_facturas > 0:
+        logger.info(f"⏳ Uniendo {total_facturas} archivo(s) de Facturas...")
+        facturas_name = f"Amazon_Facturas_{timestamp}.pdf"
+        facturas_path = os.path.join(day_folder_root, facturas_name)
+        out_doc = fitz.open()
+        for path in facturas_paths:
+            try:
+                doc = fitz.open(path)
+                out_doc.insert_pdf(doc)
+                doc.close()
+            except Exception as e:
+                logger.error(f"❌ Error procesando {os.path.basename(path)}: {e}")
+        out_doc.save(facturas_path)
+        out_doc.close()
+        
+        if correo_dir:
+            try:
+                os.makedirs(correo_dir, exist_ok=True)
+                shutil.copy2(facturas_path, os.path.join(correo_dir, facturas_name))
+                logger.info(f"📋 Facturas copiadas a correo: {facturas_name}")
+                success_facturas = True
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudo copiar a correo: {e}")
+                
+    if total_guias == 0 and total_facturas == 0:
+        return False, day_folder_root, 0, 0
+        
+    return True, day_folder_root, total_guias, total_facturas
+
+# ============================================================================
 # GUI / APPLICATION
 # ============================================================================
 class CustomAlert(ctk.CTkToplevel):
@@ -449,6 +515,10 @@ class UnifiedSheinApp(TkinterDnD_CTk):
         self.files_selected = {}
         self.rotation_files = []
         
+        # Variables Amazon
+        self.amazon_guias_files = []
+        self.amazon_facturas_files = []
+        
         # UI Layout principal
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -461,7 +531,8 @@ class UnifiedSheinApp(TkinterDnD_CTk):
             "Marcas y Licencias": {"primary": "#0066cc", "hover": "#0052a3", "accent": "#0066cc"}, # Azul
             "Pure and Simple": {"primary": "#28a745", "hover": "#218838", "accent": "#28a745"}, # Verde
             "TikTok": {"primary": "#ff0050", "hover": "#cc0040", "accent": "#ff0050"}, # Rosa/Rojo TikTok
-            "Mercado Libre": {"primary": "#f9d342", "hover": "#e3b517", "accent": "#f9d342"} # Amarillo Mercado Libre
+            "Mercado Libre": {"primary": "#f9d342", "hover": "#e3b517", "accent": "#f9d342"}, # Amarillo Mercado Libre
+            "Amazon": {"primary": "#ff9900", "hover": "#cc7a00", "accent": "#ff9900"} # Naranja Amazon
         }
         
         # Inicializar colores dinámicos
@@ -490,7 +561,7 @@ class UnifiedSheinApp(TkinterDnD_CTk):
         
         self.brand_menu = ctk.CTkOptionMenu(
             self.sidebar_frame, 
-            values=["Marcas y Licencias", "Pure and Simple", "TikTok", "Mercado Libre"],
+            values=["Marcas y Licencias", "Pure and Simple", "TikTok", "Mercado Libre", "Amazon"],
             variable=self.brand_var,
             font=("Roboto", 13),
             command=self.on_brand_change
@@ -587,15 +658,57 @@ class UnifiedSheinApp(TkinterDnD_CTk):
         )
         self.btn_select_rotate_files.grid(row=1, column=0, columnspan=3, padx=20, pady=(0, 15), sticky="ew")
 
-        # 3. Área de Progreso y Título Logs
+        # 3. Servicio Amazon: Unir Guías y Facturas
+        self.amazon_service_frame = ctk.CTkFrame(self.main_frame, corner_radius=15, fg_color="#1c1c1e")
+        self.amazon_service_frame.grid(row=2, column=0, sticky="ew", pady=(0, 20))
+        self.amazon_service_frame.grid_remove()
+        self.amazon_service_frame.grid_columnconfigure(1, weight=1)
+
+        self.amazon_title_label = ctk.CTkLabel(
+            self.amazon_service_frame,
+            text="Servicio Amazon: Unir Guías y Facturas",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#ff9900"
+        )
+        self.amazon_title_label.grid(row=0, column=0, columnspan=3, padx=20, pady=(15, 10), sticky="w")
+
+        self.amazon_guias_label = ctk.CTkLabel(self.amazon_service_frame, text="0 Guías seleccionadas", font=ctk.CTkFont(size=12), text_color="gray70")
+        self.amazon_guias_label.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="w")
+
+        self.btn_select_amazon_guias = ctk.CTkButton(
+            self.amazon_service_frame,
+            text="Examinar Guías",
+            width=220,
+            command=self.select_multiple_guias_amazon,
+            fg_color="#ff9900",
+            hover_color="#cc7a00",
+            text_color="#000000"
+        )
+        self.btn_select_amazon_guias.grid(row=1, column=1, padx=20, pady=(0, 10), sticky="e")
+
+        self.amazon_facturas_label = ctk.CTkLabel(self.amazon_service_frame, text="0 Facturas seleccionadas", font=ctk.CTkFont(size=12), text_color="gray70")
+        self.amazon_facturas_label.grid(row=2, column=0, padx=20, pady=(0, 15), sticky="w")
+
+        self.btn_select_amazon_facturas = ctk.CTkButton(
+            self.amazon_service_frame,
+            text="Examinar Facturas",
+            width=220,
+            command=self.select_multiple_facturas_amazon,
+            fg_color="#ff9900",
+            hover_color="#cc7a00",
+            text_color="#000000"
+        )
+        self.btn_select_amazon_facturas.grid(row=2, column=1, padx=20, pady=(0, 15), sticky="e")
+
+        # 4. Área de Progreso y Título Logs
         self.progress_bar = ctk.CTkProgressBar(self.main_frame, mode="indeterminate", height=6)
-        self.progress_bar.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 10))
+        self.progress_bar.grid(row=3, column=0, sticky="ew", padx=20, pady=(0, 10))
         self.progress_bar.set(0) # Visualmente apagado hasta que inicie
         
         lbl_log = ctk.CTkLabel(self.main_frame, text="Consola de Operaciones", font=ctk.CTkFont(size=14, weight="bold"))
-        lbl_log.grid(row=2, column=0, sticky="w", padx=20, pady=(0, 5))
+        lbl_log.grid(row=3, column=0, sticky="w", padx=20, pady=(0, 5))
 
-        # 3. Log Box
+        # 5. Log Box
         self.log_box = ctk.CTkTextbox(
             self.main_frame, 
             corner_radius=10,
@@ -604,7 +717,7 @@ class UnifiedSheinApp(TkinterDnD_CTk):
             font=("Consolas", 12),
             state="disabled"
         )
-        self.log_box.grid(row=3, column=0, padx=20, sticky="nsew")
+        self.log_box.grid(row=4, column=0, padx=20, sticky="nsew")
         
         # Etiquetas de color para el log
         self.log_box.tag_config("success", foreground="#a6e3a1") # Soft Green
@@ -659,12 +772,20 @@ class UnifiedSheinApp(TkinterDnD_CTk):
 
         if value == "Mercado Libre":
             self.files_container.grid_remove()
+            if hasattr(self, 'amazon_service_frame'):
+                self.amazon_service_frame.grid_remove()
             self.rotate_service_frame.grid()
             self.rotate_title_label.configure(text="Servicio Mercado Libre: Primera hoja rotada (full hoja)", text_color=colors["accent"])
-        else:
-            self.files_container.grid()
+        elif value == "Amazon":
+            self.files_container.grid_remove()
             self.rotate_service_frame.grid_remove()
-            self.rotate_title_label.configure(text="Servicio Mercado Libre: Primera hoja rotada (full hoja)", text_color="#f9d342")
+            if hasattr(self, 'amazon_service_frame'):
+                self.amazon_service_frame.grid()
+        else:
+            self.rotate_service_frame.grid_remove()
+            if hasattr(self, 'amazon_service_frame'):
+                self.amazon_service_frame.grid_remove()
+            self.files_container.grid()
         
         # Limpiar seleccion al cambiar marca
         self.files_selected.clear()
@@ -672,6 +793,17 @@ class UnifiedSheinApp(TkinterDnD_CTk):
             entry.configure(state="normal")
             entry.delete(0, "end")
             entry.configure(state="disabled")
+            
+        if hasattr(self, 'amazon_guias_files'):
+            self.amazon_guias_files.clear()
+            self.amazon_guias_label.configure(text="0 Guías seleccionadas")
+        if hasattr(self, 'amazon_facturas_files'):
+            self.amazon_facturas_files.clear()
+            self.amazon_facturas_label.configure(text="0 Facturas seleccionadas")
+        if hasattr(self, 'rotation_files'):
+            self.rotation_files.clear()
+            if hasattr(self, 'rotate_selected_label'):
+                self.rotate_selected_label.configure(text="0 archivos seleccionados")
 
     def select_file(self, key):
         path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
@@ -694,6 +826,20 @@ class UnifiedSheinApp(TkinterDnD_CTk):
             self.rotate_selected_label.configure(text=f"{len(paths)} archivos seleccionados")
             self.log(f"✅ {len(paths)} archivos seleccionados para rotar primera hoja.")
             self.start_rotation_service()
+
+    def select_multiple_guias_amazon(self):
+        paths = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
+        if paths:
+            self.amazon_guias_files = list(paths)
+            self.amazon_guias_label.configure(text=f"{len(paths)} Guías seleccionadas")
+            self.log(f"✅ {len(paths)} Guías de Amazon seleccionadas.")
+
+    def select_multiple_facturas_amazon(self):
+        paths = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
+        if paths:
+            self.amazon_facturas_files = list(paths)
+            self.amazon_facturas_label.configure(text=f"{len(paths)} Facturas seleccionadas")
+            self.log(f"✅ {len(paths)} Facturas de Amazon seleccionadas.")
 
     def start_rotation_service(self):
         if self.processing:
@@ -742,7 +888,11 @@ class UnifiedSheinApp(TkinterDnD_CTk):
         self.btn_process.configure(state="normal")
         self.mode_selector.configure(state="normal")
         self.brand_menu.configure(state="normal")
-        self.btn_select_rotate_files.configure(state="normal")
+        if hasattr(self, 'btn_select_rotate_files'):
+            self.btn_select_rotate_files.configure(state="normal")
+        if hasattr(self, 'btn_select_amazon_guias'):
+            self.btn_select_amazon_guias.configure(state="normal")
+            self.btn_select_amazon_facturas.configure(state="normal")
 
         if success:
             self.btn_open_folder.configure(state="normal")
@@ -757,6 +907,12 @@ class UnifiedSheinApp(TkinterDnD_CTk):
         if not files: return
         
         mode = self.mode_var.get()
+        brand = self.brand_var.get()
+        
+        if brand == "Amazon" or brand == "Mercado Libre":
+            self.log("⚠️ Arrastrar y soltar no soportado en este modo, usa los botones 'Examinar'.")
+            return
+            
         if mode == "Día Único":
             keys = ["Único"]
         else:
@@ -806,11 +962,20 @@ class UnifiedSheinApp(TkinterDnD_CTk):
 
         # Validación
         mode = self.mode_var.get()
-        if len(self.files_selected) == 0:
-            messagebox.showwarning("Faltan Archivos", "Por favor seleccione al menos un archivo PDF para procesar.")
-            return
-
         brand = self.brand_var.get()
+        
+        if brand == "Amazon":
+            if not self.amazon_guias_files and not self.amazon_facturas_files:
+                messagebox.showwarning("Faltan Archivos", "Por favor seleccione Guías o Facturas para procesar.")
+                return
+        elif brand == "Mercado Libre":
+            if not self.rotation_files:
+                messagebox.showwarning("Faltan Archivos", "Por favor seleccione archivos para rotar (Mercado Libre).")
+                return
+        else:
+            if len(self.files_selected) == 0:
+                messagebox.showwarning("Faltan Archivos", "Por favor seleccione al menos un archivo PDF para procesar.")
+                return
 
         # Marcar que se limpiaran los shortcuts en la sesion a la primera iteracion
         clear_shortcuts = not self.folders_cleared_this_session
@@ -822,7 +987,11 @@ class UnifiedSheinApp(TkinterDnD_CTk):
         self.btn_open_folder.configure(state="disabled")
         self.mode_selector.configure(state="disabled")
         self.brand_menu.configure(state="disabled")
-        self.btn_select_rotate_files.configure(state="disabled")
+        if hasattr(self, 'btn_select_rotate_files'):
+            self.btn_select_rotate_files.configure(state="disabled")
+        if hasattr(self, 'btn_select_amazon_guias'):
+            self.btn_select_amazon_guias.configure(state="disabled")
+            self.btn_select_amazon_facturas.configure(state="disabled")
         self.progress_bar.start()
 
         for btn in self.dynamic_fields_frame.winfo_children():
@@ -842,10 +1011,75 @@ class UnifiedSheinApp(TkinterDnD_CTk):
         queue_h.setFormatter(logging.Formatter('%(message)s'))
         logger.addHandler(queue_h)
 
-        files_locked = self.files_selected.copy()
-        t = threading.Thread(target=self.run_process_wrapper, args=(brand, mode, files_locked, logger, clear_shortcuts))
-        t.daemon = True
-        t.start()
+        if brand == "Amazon":
+            guias = list(self.amazon_guias_files)
+            facturas = list(self.amazon_facturas_files)
+            t = threading.Thread(target=self.run_amazon_service, args=(guias, facturas, logger, clear_shortcuts))
+            t.daemon = True
+            t.start()
+        elif brand == "Mercado Libre":
+            files = list(self.rotation_files)
+            t = threading.Thread(target=self.run_rotation_service, args=(files, logger))
+            t.daemon = True
+            t.start()
+        else:
+            files_locked = self.files_selected.copy()
+            t = threading.Thread(target=self.run_process_wrapper, args=(brand, mode, files_locked, logger, clear_shortcuts))
+            t.daemon = True
+            t.start()
+
+    def run_amazon_service(self, guias, facturas, logger, clear_shortcuts):
+        desktop = os.path.expanduser("~/Desktop")
+        base_shein = os.path.join(desktop, "guias-shein")
+        
+        imprimir_dir = os.path.join(base_shein, "imprimir")
+        correo_dir = os.path.join(base_shein, "correo")
+        
+        if clear_shortcuts:
+            logger.info("🗑 Vaciando carpetas cortafuegos (imprimir, correo)...")
+            for d in [imprimir_dir, correo_dir]:
+                if os.path.exists(d):
+                    for filename in os.listdir(d):
+                        file_path = os.path.join(d, filename)
+                        try:
+                            if os.path.isfile(file_path):
+                                os.unlink(file_path)
+                            elif os.path.isdir(file_path):
+                                shutil.rmtree(file_path)
+                        except Exception as e:
+                            logger.warning(f"⚠️ No se pudo limpiar {file_path}: {e}")
+                            
+        os.makedirs(imprimir_dir, exist_ok=True)
+        os.makedirs(correo_dir, exist_ok=True)
+        
+        today = datetime.now().strftime("%d-%m-%Y")
+        day_folder_root = os.path.join(base_shein, today, "Amazon")
+        
+        success, folder, total_guias, total_facturas = process_amazon_service(guias, facturas, logger, imprimir_dir, correo_dir, day_folder_root)
+        self.result_folder = folder
+        self.after(0, lambda: self.finish_amazon_service(success, total_guias, total_facturas))
+
+    def finish_amazon_service(self, success, total_guias, total_facturas):
+        self.progress_bar.stop()
+        self.processing = False
+        self.btn_process.configure(state="normal", text="Procesar Guías")
+        self.mode_selector.configure(state="normal")
+        self.brand_menu.configure(state="normal")
+        if hasattr(self, 'btn_select_rotate_files'):
+            self.btn_select_rotate_files.configure(state="normal")
+        if hasattr(self, 'btn_select_amazon_guias'):
+            self.btn_select_amazon_guias.configure(state="normal")
+            self.btn_select_amazon_facturas.configure(state="normal")
+
+        accent = self.brand_colors.get("Amazon")["accent"]
+
+        if success:
+            self.btn_open_folder.configure(state="normal")
+            self.log(f"\n✅ Servicio Amazon completado: {total_guias} archivo(s) de Guías y {total_facturas} archivo(s) de Facturas unidos.")
+            msg = f"Guías unidas guardadas en:\n{self.result_folder}\ny copiadas a 'imprimir'.\n\nFacturas unidas guardadas en la misma ruta y copiadas a 'correo'."
+            CustomAlert(self, "Amazon completado", msg, is_error=False, accent_color=accent)
+        else:
+            CustomAlert(self, "Error de Amazon", "No se pudo procesar ningún archivo. Revisa la consola.", is_error=True, accent_color=accent)
 
     def run_process_wrapper(self, brand, mode, files_dict, logger, clear_shortcuts):
         success, folder, report = run_processing_pipeline(brand, mode, files_dict, logger, clear_shortcuts)
@@ -858,7 +1092,11 @@ class UnifiedSheinApp(TkinterDnD_CTk):
         self.btn_process.configure(state="normal", text="Procesar Guías")
         self.mode_selector.configure(state="normal")
         self.brand_menu.configure(state="normal")
-        self.btn_select_rotate_files.configure(state="normal")
+        if hasattr(self, 'btn_select_rotate_files'):
+            self.btn_select_rotate_files.configure(state="normal")
+        if hasattr(self, 'btn_select_amazon_guias'):
+            self.btn_select_amazon_guias.configure(state="normal")
+            self.btn_select_amazon_facturas.configure(state="normal")
 
         for btn in self.dynamic_fields_frame.winfo_children():
             if isinstance(btn, ctk.CTkButton):
