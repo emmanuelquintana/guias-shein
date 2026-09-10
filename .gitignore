@@ -10,3 +10,4 @@
 *.json
 *.txt
 .qodo
+__pycache__/

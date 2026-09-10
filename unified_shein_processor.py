@@ -15,7 +15,15 @@ import platform
 import subprocess
 import queue
 import shutil
+import smtplib
 from tkinterdnd2 import TkinterDnD, DND_FILES
+
+from gmail_sender import (
+    clear_app_password,
+    group_email_batches,
+    load_app_password,
+    send_marketplace_emails,
+)
 
 try:
     from docx2pdf import convert
@@ -303,7 +311,7 @@ def run_processing_pipeline(brand, mode, files_dict, logger, clear_shortcuts=Fal
 # ============================================================================
 # EXTRA SERVICE: MERCADO LIBRE - FIRST PAGE AS FULL-PAGE ROTATED IMAGE
 # ============================================================================
-def process_ml_first_page(file_paths, output_dir, logger, imprimir_dir=None):
+def process_ml_first_page(file_paths, output_dir, logger, imprimir_dir=None, correo_dir=None):
     """
     Toma la primera hoja de cada PDF, recorta espacio en blanco,
     orienta en portrait y combina todas en UN solo PDF de salida.
@@ -386,6 +394,14 @@ def process_ml_first_page(file_paths, output_dir, logger, imprimir_dir=None):
             logger.info(f"📋 Copiado a imprimir: {output_name}")
         except Exception as e:
             logger.warning(f"⚠️ No se pudo copiar a imprimir: {e}")
+
+    if correo_dir:
+        try:
+            os.makedirs(correo_dir, exist_ok=True)
+            shutil.copy2(output_path, os.path.join(correo_dir, output_name))
+            logger.info(f"📋 Copiado a correo: {output_name}")
+        except Exception as e:
+            logger.warning(f"⚠️ No se pudo copiar a correo: {e}")
 
     logger.info(f"✅ PDF combinado guardado: {output_name} ({total_processed} hoja(s)).")
     return True, output_dir, total_processed
@@ -486,6 +502,71 @@ class CustomAlert(ctk.CTkToplevel):
         btn_ok = ctk.CTkButton(frame, text="Aceptar", command=self.destroy, fg_color=btn_color, height=40, font=ctk.CTkFont(weight="bold"))
         btn_ok.grid(row=1, column=0, pady=(0, 10))
 
+
+class CustomConfirm(ctk.CTkToplevel):
+    def __init__(self, master, title, message, accent_color="#166534"):
+        super().__init__(master)
+        self.result = False
+        self.title(" " + title)
+        self.geometry("500x390")
+        self.resizable(False, False)
+        self.transient(master)
+        self.attributes("-topmost", True)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self.cancel)
+        self.bind("<Escape>", lambda _event: self.cancel())
+
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        frame = ctk.CTkFrame(self, fg_color="transparent")
+        frame.grid(row=0, column=0, sticky="nsew", padx=28, pady=24)
+        frame.grid_rowconfigure(1, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+
+        heading = ctk.CTkLabel(frame, text=title, font=ctk.CTkFont(size=18, weight="bold"), anchor="w")
+        heading.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        body = ctk.CTkLabel(frame, text=message, font=ctk.CTkFont(size=13), wraplength=430, justify="left", anchor="nw")
+        body.grid(row=1, column=0, sticky="nsew")
+
+        actions = ctk.CTkFrame(frame, fg_color="transparent")
+        actions.grid(row=2, column=0, sticky="e", pady=(20, 0))
+        self.btn_cancel = ctk.CTkButton(
+            actions,
+            text="Cancelar",
+            command=self.cancel,
+            width=120,
+            height=40,
+            fg_color="#3a3a3c",
+            hover_color="#48484a",
+        )
+        self.btn_cancel.grid(row=0, column=0, padx=(0, 10))
+        btn_confirm = ctk.CTkButton(
+            actions,
+            text="Enviar",
+            command=self.confirm,
+            width=120,
+            height=40,
+            fg_color=accent_color,
+            hover_color="#14532d",
+            font=ctk.CTkFont(weight="bold"),
+        )
+        btn_confirm.grid(row=0, column=1)
+        self.after(100, self.btn_cancel.focus_set)
+
+    def confirm(self):
+        self.result = True
+        self.destroy()
+
+    def cancel(self):
+        self.destroy()
+
+
+def ask_custom_confirm(master, title, message):
+    dialog = CustomConfirm(master, title, message)
+    master.wait_window(dialog)
+    return dialog.result
+
+
 class TkinterDnD_CTk(ctk.CTk, TkinterDnD.DnDWrapper):
     """Mix-in class to enable TkinterDnD within CustomTkinter."""
     def __init__(self, *args, **kwargs):
@@ -493,6 +574,9 @@ class TkinterDnD_CTk(ctk.CTk, TkinterDnD.DnDWrapper):
         self.TkdndVersion = TkinterDnD._require(self)
 
 class UnifiedSheinApp(TkinterDnD_CTk):
+    GMAIL_SENDER = "quintanatorresjoseemmanuel1dm@gmail.com"
+    EMAIL_RECIPIENTS = ("cecilia.unipride@gmail.com", "almacenu4u@gmail.com")
+
     def __init__(self):
         super().__init__()
 
@@ -509,6 +593,7 @@ class UnifiedSheinApp(TkinterDnD_CTk):
         self.processing = False
         self.result_folder = None
         self.folders_cleared_this_session = False
+        self.gmail_config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".gmail.json")
         
         self.mode_var = ctk.StringVar(value="Día Único")
         self.brand_var = ctk.StringVar(value="Marcas y Licencias")
@@ -549,7 +634,7 @@ class UnifiedSheinApp(TkinterDnD_CTk):
         # Sidebar Frame
         self.sidebar_frame = ctk.CTkFrame(self, width=250, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(7, weight=1) # Filler
+        self.sidebar_frame.grid_rowconfigure(9, weight=1) # Filler
 
         # Título
         lbl_title = ctk.CTkLabel(self.sidebar_frame, text="Shein Processor", font=ctk.CTkFont(size=22, weight="bold"))
@@ -606,6 +691,26 @@ class UnifiedSheinApp(TkinterDnD_CTk):
             state="disabled"
         )
         self.btn_open_folder.grid(row=6, column=0, padx=20, pady=10, sticky="ew")
+
+        self.btn_send_email = ctk.CTkButton(
+            self.sidebar_frame,
+            text="Enviar correos",
+            command=self.start_email_send,
+            fg_color="#166534",
+            hover_color="#14532d",
+            height=42,
+            font=ctk.CTkFont(weight="bold"),
+        )
+        self.btn_send_email.grid(row=7, column=0, padx=20, pady=(10, 4), sticky="ew")
+
+        self.email_recipient_label = ctk.CTkLabel(
+            self.sidebar_frame,
+            text="Destinos: Cecilia + Almacén U4U",
+            wraplength=210,
+            font=ctk.CTkFont(size=11),
+            text_color="gray70",
+        )
+        self.email_recipient_label.grid(row=8, column=0, padx=20, pady=(0, 12), sticky="ew")
 
     def setup_main_area(self):
         # Frame derecho principal
@@ -878,7 +983,10 @@ class UnifiedSheinApp(TkinterDnD_CTk):
         desktop = os.path.expanduser("~/Desktop")
         output_dir = os.path.join(desktop, "mercado-libre", "primeras_hojas_rotadas")
         imprimir_dir = os.path.join(desktop, "guias-shein", "imprimir")
-        success, folder, processed = process_ml_first_page(files, output_dir, logger, imprimir_dir=imprimir_dir)
+        correo_dir = os.path.join(desktop, "guias-shein", "correo")
+        success, folder, processed = process_ml_first_page(
+            files, output_dir, logger, imprimir_dir=imprimir_dir, correo_dir=correo_dir
+        )
         self.result_folder = folder
         self.after(0, lambda: self.finish_rotation_service(success, processed))
 
@@ -956,6 +1064,88 @@ class UnifiedSheinApp(TkinterDnD_CTk):
     def open_output_folder(self):
         if self.result_folder and os.path.exists(self.result_folder):
             open_folder(self.result_folder)
+
+    def start_email_send(self):
+        if self.processing:
+            return
+
+        correo_dir = os.path.join(os.path.expanduser("~/Desktop"), "guias-shein", "correo")
+        try:
+            password = load_app_password(self.gmail_config_path)
+        except Exception:
+            messagebox.showerror(
+                "Gmail no configurado",
+                "No se pudo leer la configuración cifrada de Gmail.",
+            )
+            return
+
+        if not password:
+            messagebox.showerror(
+                "Gmail no configurado",
+                "No se encontró la configuración cifrada de Gmail.",
+            )
+            return
+
+        batches = group_email_batches(correo_dir)
+        if not batches:
+            messagebox.showwarning("Sin archivos", "No hay PDFs de marketplaces en la carpeta 'correo'.")
+            return
+
+        summary = "\n".join(
+            f"• {marketplace} - {day}: {len(paths)} PDF(s)"
+            for (marketplace, day), paths in batches.items()
+        )
+        if not ask_custom_confirm(
+            self,
+            "Confirmar envío",
+            f"Cada correo se enviará a los mismos 2 destinatarios:\n{self.EMAIL_RECIPIENTS[0]}\n{self.EMAIL_RECIPIENTS[1]}\n\n{summary}\n\n¿Continuar?",
+        ):
+            return
+
+        self.processing = True
+        self.btn_send_email.configure(state="disabled", text="Enviando...")
+        self.btn_process.configure(state="disabled")
+        self.progress_bar.start()
+        self.log("▶ Enviando correos...")
+        logger = logging.getLogger("EmailLogger")
+        logger.setLevel(logging.INFO)
+        logger.handlers.clear()
+        queue_handler = QueueHandler(self.log_queue)
+        queue_handler.setFormatter(logging.Formatter('%(message)s'))
+        logger.addHandler(queue_handler)
+        threading.Thread(target=self.run_email_send, args=(password, correo_dir, logger), daemon=True).start()
+
+    def run_email_send(self, password, correo_dir, logger):
+        try:
+            result = send_marketplace_emails(
+                self.GMAIL_SENDER,
+                password.replace(" ", ""),
+                self.EMAIL_RECIPIENTS,
+                correo_dir,
+                logger,
+            )
+            self.after(0, lambda: self.finish_email_send(result, None))
+        except smtplib.SMTPAuthenticationError:
+            clear_app_password(self.gmail_config_path)
+            message = "Gmail rechazó la contraseña. Vuelve a pulsar el botón y pega una contraseña de aplicación nueva."
+            self.after(0, lambda error=message: self.finish_email_send(None, error))
+        except Exception as error:
+            message = str(error)
+            self.after(0, lambda error=message: self.finish_email_send(None, error))
+
+    def finish_email_send(self, result, error):
+        self.processing = False
+        self.progress_bar.stop()
+        self.btn_send_email.configure(state="normal", text="Enviar correos")
+        self.btn_process.configure(state="normal")
+        if error:
+            self.log(f"❌ Error enviando correo: {error}")
+            CustomAlert(self, "Error de correo", error, is_error=True)
+            return
+        details = "\n".join(f"• {marketplace}: {count} PDF(s)" for marketplace, count in result.items())
+        recipients = "\n".join(self.EMAIL_RECIPIENTS)
+        self.log(f"✅ Correos enviados a {', '.join(self.EMAIL_RECIPIENTS)}.")
+        CustomAlert(self, "Correos enviados", f"Destinatarios:\n{recipients}\n\n{details}")
 
     def start_thread(self):
         if self.processing: return
